@@ -1,7 +1,9 @@
 mod graphics;
-use graphics::state::State;
+use graphics::context::WgpuContext;
+use graphics::renderer::Renderer;
 
 use std::sync::Arc;
+use std::time;
 
 use winit::{
     application::ApplicationHandler,
@@ -12,43 +14,50 @@ use winit::{
 };
 
 pub struct App {
-    state: Option<State>,
+    wgpu_ctx: Option<WgpuContext>,
+    prev_time: time::Instant,
 }
 
 impl App {
     pub fn new() -> Self {
-        Self { state: None }
+        let start_time = time::Instant::now();
+        Self { wgpu_ctx: None , prev_time: start_time }
     }
 }
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if self.state.is_none() {
+        if self.wgpu_ctx.is_none() {
             let window_attributes = Window::default_attributes().with_title("WGPU");
             let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
 
-            let state = pollster::block_on(State::new(window.clone()));
+            let state = pollster::block_on(WgpuContext::new(window.clone()));
 
-            self.state = Some(state);
+            self.wgpu_ctx = Some(state);
         }
     }
 
-    // fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        let curr_time = time::Instant::now();
+        let dt = (curr_time - self.prev_time).as_secs_f32();
+        self.prev_time = curr_time;
 
-    // }
+        println!("FPS: {}", 1.0/dt);
+    }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _window_id: WindowId, event: WindowEvent) {
-        let state = match &mut self.state {
-            Some(state) => state,
+        let wgpu_ctx = match &mut self.wgpu_ctx {
+            Some(wgpu_ctx) => wgpu_ctx,
             None => return
         };
 
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
-            WindowEvent::Resized(size) => state.resize(size.width, size.height),
+            WindowEvent::Resized(size) => wgpu_ctx.resize(size.width, size.height),
             WindowEvent::RedrawRequested => {
-                let renderer = state.begin_frame();
-                state.end_frame(renderer).unwrap();
+                let renderer = Renderer::new();
+                // self.game.render(&mut renderer);
+                wgpu_ctx.render(renderer).unwrap();
             }
             WindowEvent::KeyboardInput {
                 event: KeyEvent {
@@ -68,9 +77,10 @@ impl ApplicationHandler for App {
     }
 }
 
+
 fn main() {
     env_logger::init();
-    let mut app = App { state: None };
+    let mut app = App::new();
 
     let event_loop = EventLoop::new().unwrap();
     event_loop.set_control_flow(ControlFlow::Poll);

@@ -3,17 +3,10 @@ use anyhow::Ok;
 use winit::window::Window;
 use std::sync::Arc;
 
-pub enum RenderCommand {
-    Mesh,
-    Sprite,
-    Pass,
-}
+use super::renderer::Renderer;
 
-pub struct Renderer {
-    pub command_queue: Vec<RenderCommand>
-}
-
-pub struct State {
+/// Represents a WebGPU rendering context
+pub struct WgpuContext {
     window: Arc<Window>,
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
@@ -25,7 +18,7 @@ pub struct State {
     is_surface_configured: bool,
 }
 
-impl State {
+impl WgpuContext {
     pub async fn new(window: Arc<Window>) -> Self {
         let size = window.inner_size();
 
@@ -66,7 +59,8 @@ impl State {
             format: surface_format,
             width: size.width,
             height: size.height,
-            present_mode: surface_caps.present_modes[0],
+            // present_mode: surface_caps.present_modes[0],
+            present_mode: wgpu::PresentMode::AutoVsync,
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: Vec::new(),
             desired_maximum_frame_latency: 2,
@@ -85,18 +79,14 @@ impl State {
 
     pub fn resize(&mut self, width: u32, height: u32) {
         if width > 0 && height > 0 {
-        self.config.width = width;
-        self.config.height = height;
-        self.surface.configure(&self.device, &self.config);
-        self.is_surface_configured = true;
-    }
-    }
-
-    pub fn begin_frame(&mut self) -> Renderer {
-        Renderer { command_queue: Vec::new() }
+            self.config.width = width;
+            self.config.height = height;
+            self.surface.configure(&self.device, &self.config);
+            self.is_surface_configured = true;
+        }
     }
 
-    pub fn end_frame(&mut self, mut _renderer: Renderer) -> anyhow::Result<()> {
+    pub fn render(&mut self, mut _renderer: Renderer) -> anyhow::Result<()> {
         self.window.request_redraw();
 
         if !self.is_surface_configured {
