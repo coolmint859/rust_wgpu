@@ -1,128 +1,133 @@
 #![allow(dead_code)]
 use anyhow::Ok;
+use wgpu::util::DeviceExt;
 use winit::window::Window;
 use std::sync::Arc;
+use bytemuck;
 
 use super::renderer::Renderer;
+use super::vertex::Vertex;
+use super::pipeline;
+use super::buffer;
+use super::core::WgpuCore;
+use super::mesh::Mesh;
 
-/// Represents a WebGPU rendering context
+/// Represents the entire WebGPU rendering context
 pub struct WgpuContext {
-    window: Arc<Window>,
-    surface: wgpu::Surface<'static>,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
-    config: wgpu::SurfaceConfiguration,
+    core: WgpuCore,
+    pipeline_handler: pipeline::PipelineHandler,
+    buffer_handler: buffer::BufferHandler,
 
-    pub size: winit::dpi::PhysicalSize<u32>,
-
-    is_surface_configured: bool,
+    mesh: Mesh,
 }
 
 impl WgpuContext {
+    const VERT_MAIN: &str = "vs_main";
+    const FRAG_MAIN: &str = "fs_main";
+
     pub async fn new(window: Arc<Window>) -> Self {
-        let size = window.inner_size();
+        let core = WgpuCore::new(window).await;
 
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::DX12,
-            ..Default::default()
-        });
+        let mut pipeline_handler = pipeline::PipelineHandler::new(
+            &core.device,
+            core.config.format.clone()
+        );
 
-        let surface = instance.create_surface(window.clone()).unwrap();
+        pipeline_handler.request_pipeline(
+            pipeline::ShaderConfig {
+                name: String::from("shader"),
+                path: String::from("assets/shaders/shader.wgsl"),
+                vert_main: String::from("vs_main"),
+                frag_main: String::from("fs_main"),
+            }
+        );
 
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::default(),
-                compatible_surface: Some(&surface),
-                force_fallback_adapter: false,
-            }).await
-            .unwrap();
+        let mesh = Mesh::new(
+            vec![
+                Vertex { position: [-0.0868241, 0.49240386, 0.0], color: [0.5, 0.0, 0.5] }, // A
+                Vertex { position: [-0.49513406, 0.06958647, 0.0], color: [0.5, 0.0, 0.5] }, // B
+                Vertex { position: [-0.21918549, -0.44939706, 0.0], color: [0.5, 0.0, 0.5] }, // C
+                Vertex { position: [0.35966998, -0.3473291, 0.0], color: [0.5, 0.0, 0.5] }, // D
+                Vertex { position: [0.44147372, 0.2347359, 0.0], color: [0.5, 0.0, 0.5] }, // E
+            ],
+            vec![
+                0, 1, 4, 
+                1, 2, 4,
+                2, 3, 4
+            ]
+        );
 
-        let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor {
-                label: None,
-                required_features: wgpu::Features::empty(),
-                experimental_features: wgpu::ExperimentalFeatures::disabled(),
-                required_limits: wgpu::Limits::default(),
-                memory_hints: Default::default(),
-                trace: wgpu::Trace::Off,
-            }).await
-            .unwrap();
-
-        let surface_caps = surface.get_capabilities(&adapter);
-        let surface_format = surface_caps.formats.iter()
-            .find(|f| f.is_srgb())
-            .copied()
-            .unwrap_or(surface_caps.formats[0]);
-
-        let config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: surface_format,
-            width: size.width,
-            height: size.height,
-            // present_mode: surface_caps.present_modes[0],
-            present_mode: wgpu::PresentMode::AutoVsync,
-            alpha_mode: surface_caps.alpha_modes[0],
-            view_formats: Vec::new(),
-            desired_maximum_frame_latency: 2,
-        };
+        let mut buffer_handler = buffer::BufferHandler::new(&core.device);
+        buffer_handler.request_gpu_mesh(&mesh);
 
         Self {
-            window,
-            surface,
-            device, 
-            queue,
-            config,
-            size,
-            is_surface_configured: false,
+            core,
+            pipeline_handler,
+            buffer_handler,
+            mesh
         }
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
-        if width > 0 && height > 0 {
-            self.config.width = width;
-            self.config.height = height;
-            self.surface.configure(&self.device, &self.config);
-            self.is_surface_configured = true;
-        }
+        self.core.resize(width, height);
     }
 
     pub fn render(&mut self, mut _renderer: Renderer) -> anyhow::Result<()> {
-        self.window.request_redraw();
+        self.core.window.request_redraw();
+        self.pipeline_handler.check_ready_pipelines();
+        self.buffer_handler.check_ready_buffers();
 
-        if !self.is_surface_configured {
+        if !self.core.is_surface_configured() {
             return Ok(());
         }
 
-        let output = self.surface.get_current_texture()?;
+        let pipeline = match self.pipeline_handler.get_pipeline("shader") {
+            Some(pipeline) => pipeline,
+            None => return Ok(())
+        };
+
+        let gpu_mesh = match self.buffer_handler.get_gpu_mesh(self.mesh.id()) {
+            Some(gpu_mesh) => gpu_mesh,
+            None => return Ok(())
+        };
+
+        let output = self.core.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let mut encoder = self.device.create_command_encoder(
+        let mut encoder = self.core.device.create_command_encoder(
             &wgpu::CommandEncoderDescriptor {
                 label: Some("Render Encoder"),
             });
 
         {
-            let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    depth_slice: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.1, g: 0.2, b: 0.3, a: 1.0,
-                        }),
-                        store: wgpu::StoreOp::Store,
-                    }
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
-                multiview_mask: None,
-            });
+            let mut render_pass = encoder.begin_render_pass(
+                &wgpu::RenderPassDescriptor {
+                    label: Some("Render Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        depth_slice: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color {
+                                r: 0.1, g: 0.2, b: 0.3, a: 1.0,
+                            }),
+                            store: wgpu::StoreOp::Store,
+                        }
+                    })],
+                    depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                    multiview_mask: None,
+                }
+            );
+
+            render_pass.set_pipeline(pipeline);
+            render_pass.set_vertex_buffer(0, gpu_mesh.vertex_buffer.slice(..));
+            render_pass.set_index_buffer(gpu_mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            render_pass.draw_indexed(0..gpu_mesh.num_indices, 0, 0..1);
         }
 
-        self.queue.submit(std::iter::once(encoder.finish()));
+        self.core.queue.submit(std::iter::once(encoder.finish()));
         output.present();
 
         Ok(())

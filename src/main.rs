@@ -42,6 +42,7 @@ impl ApplicationHandler for App {
         let dt = (curr_time - self.prev_time).as_secs_f32();
         self.prev_time = curr_time;
 
+
         println!("FPS: {}", 1.0/dt);
     }
 
@@ -53,7 +54,9 @@ impl ApplicationHandler for App {
 
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
-            WindowEvent::Resized(size) => wgpu_ctx.resize(size.width, size.height),
+            WindowEvent::Resized(size) => {
+                wgpu_ctx.resize(size.width, size.height);
+            },
             WindowEvent::RedrawRequested => {
                 let renderer = Renderer::new();
                 // self.game.render(&mut renderer);
@@ -77,8 +80,8 @@ impl ApplicationHandler for App {
     }
 }
 
-
-fn main() {
+#[tokio::main]
+async fn main() {
     env_logger::init();
     let mut app = App::new();
 

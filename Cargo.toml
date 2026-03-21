@@ -13,3 +13,5 @@ pollster = "0.3"
 glam = "0.32.1"
 image = "0.23"
 rand = "0.8.0"
+bytemuck = { version = "1.24", features = [ "derive" ] }
+tokio = { version = "1", features = ["full"] }
