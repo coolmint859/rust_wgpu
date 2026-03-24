@@ -1,22 +1,24 @@
-use std::{collections::HashMap, sync::{Arc, mpsc}};
+use std::sync::Arc;
 use wgpu::util::DeviceExt;
-use tokio::task;
 
 use super::mesh::Mesh;
+use super::traits::{ Handler, ResourceDescriptor };
+use super::registry::ResourceRegistry;
 
 /// represents a mesh as it lives on the gpu during rendering, most importantly it's buffers
 pub struct GpuMesh {
-    pub mesh_id: u32,
     pub vertex_buffer: wgpu::Buffer,
     pub index_buffer: wgpu::Buffer,
     pub num_indices: u32,
 }
 
 impl GpuMesh {
-    pub async fn new(device: Arc<wgpu::Device>, mesh: &Mesh) -> Self {
+    pub async fn new(device: Arc<wgpu::Device>, mesh: Mesh) -> Result<GpuMesh, String> {
+        let mesh_id = mesh.get_key().clone();
+
         let vertex_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
-                label: Some(format!("Mesh[id={}] Vertex Buffer", mesh.id()).as_str()),
+                label: Some(format!("Mesh[id={}] Vertex Buffer", mesh_id).as_str()),
                 contents: bytemuck::cast_slice(mesh.vertex_data().as_slice()),
                 usage: wgpu::BufferUsages::VERTEX,
             }
@@ -24,63 +26,54 @@ impl GpuMesh {
 
         let index_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
-                label: Some(format!("Mesh[id={}] Index Buffer", mesh.id()).as_str()),
+                label: Some(format!("Mesh[id={}] Index Buffer", mesh_id).as_str()),
                 contents: bytemuck::cast_slice(mesh.index_data().as_slice()),
                 usage: wgpu::BufferUsages::INDEX,
             }
         );
 
-        Self {
-            mesh_id: mesh.id(),
+        Ok(Self {
             vertex_buffer,
             index_buffer,
             num_indices: mesh.num_indices(),
-        }
+        })
     }
 }
 
-pub struct BufferHandler {
+
+/// Container for Mesh Buffers stored in GPU memory.
+/// 
+/// Stores references to buffers that can be requested by id during runtime for hot reloading
+pub struct MeshBufferHandler {
     device: Arc<wgpu::Device>,
-    gpu_meshes: HashMap<u32, Option<GpuMesh>>,
-    tx: mpsc::Sender<GpuMesh>,
-    rx: mpsc::Receiver<GpuMesh>,
+    registry: ResourceRegistry<u32, GpuMesh>,
 }
 
-impl BufferHandler {
+impl MeshBufferHandler {
     pub fn new(device: &Arc<wgpu::Device>) -> Self {
-        let (tx, rx) = mpsc::channel();
         Self {
             device: Arc::clone(&device),
-            gpu_meshes: HashMap::new(),
-            tx, rx
+            registry: ResourceRegistry::new(),
         }
     }
+}
 
-    pub fn request_gpu_mesh(&mut self, mesh: &Mesh) {
-        if self.gpu_meshes.contains_key(&mesh.id()) {
-            return; // gpu mesh already requested
-        }
-
-        let device = Arc::clone(&self.device);
-        let tx = self.tx.clone();
-        let cpu_mesh = mesh.clone();
-
-        self.gpu_meshes.insert(mesh.id(), None);
-
-        // have the mesh buffers be created in a separate thread
-        task::spawn(async move {
-            let gpu_mesh = GpuMesh::new(device, &cpu_mesh).await;
-            let _ = tx.send(gpu_mesh);
-        });
+impl Handler<Mesh, GpuMesh> for MeshBufferHandler {
+    fn request_new(&mut self, mesh: &Mesh) {
+        let mesh_cpy = mesh.clone();
+        let device_cpy = Arc::clone(&self.device);
+        self.registry.request_new(mesh.get_key(), GpuMesh::new(device_cpy, mesh_cpy));
     }
 
-    pub fn check_ready_buffers(&mut self) {
-        while let Ok(gpu_mesh) = self.rx.try_recv() {
-            self.gpu_meshes.insert(gpu_mesh.mesh_id, Some(gpu_mesh));
-        }
+    fn sync(&mut self) {
+        self.registry.sync();
     }
 
-    pub fn get_gpu_mesh(&self, mesh_id: u32) -> Option<&GpuMesh> {
-        return self.gpu_meshes.get(&mesh_id)?.as_ref();
+    fn get(&self, mesh_id: &u32) -> Option<&GpuMesh> {
+        self.registry.get(mesh_id)
+    }
+
+    fn remove(&mut self, mesh_id: &u32) {
+        self.registry.remove(mesh_id);
     }
 }

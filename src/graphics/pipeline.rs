@@ -1,21 +1,30 @@
-use std::{borrow::Cow, collections::HashMap, sync::{Arc, mpsc}};
+use std::{ borrow::Cow, sync::Arc };
 use wgpu::Device;
-use tokio::task;
 
 use super::vertex::Vertex;
+use super::traits::{ Handler, ResourceDescriptor };
+use super::registry::ResourceRegistry;
 
 
-/// lightwight configuration struct for shader modules
+/// lightwight configuration struct for WGPU pipelines
 #[derive(Clone)]
-pub struct ShaderConfig {
-    /// unique identifier for the shader
+pub struct RenderPipelineConfig {
+    /// unique identifier for the pipeline
     pub name: String,
-    /// the path to the shader source file
+    /// the path to the pipeline's shader source file
     pub path: String,
     /// the name of the entry function into the vertex stage 
     pub vert_main: String,
     /// the name of the entry function into the fragment stage
     pub frag_main: String,
+}
+
+impl ResourceDescriptor for RenderPipelineConfig {
+    type Key = String;
+
+    fn get_key(&self) -> &Self::Key {
+        &self.name
+    }
 }
 
 /// Container for rendering pipelines.
@@ -25,73 +34,69 @@ pub struct ShaderConfig {
 /// Uses a mcsp channel under the hood for message passing between the main and worker threads.
 /// 
 /// Stores references to pipelines that can be requested by name during runtime for hot reloading
-pub struct PipelineHandler {
+pub struct RenderPipelineHandler {
     device: Arc<Device>,
-    render_pipelines: HashMap<String, Option<wgpu::RenderPipeline>>,
-    shader_configs: HashMap<String, ShaderConfig>,
+    pipeline_registry: ResourceRegistry<String, wgpu::RenderPipeline>,
+    // config_registry: ResourceRegistry<String, RenderPipelineConfig>,
     surface_format: wgpu::TextureFormat,
-    tx: mpsc::Sender<(String, wgpu::RenderPipeline)>,
-    rx: mpsc::Receiver<(String, wgpu::RenderPipeline)>
 }
 
-impl PipelineHandler {
+impl RenderPipelineHandler {
+    /// Create a new Pipeline Handler
+    /// 
+    /// device: the GPU device for which to create pipelines with
+    /// 
+    /// format: the texture format for the pipelines
     pub fn new(device: &Arc<Device>, format: wgpu::TextureFormat) -> Self {
-        let (tx, rx) = mpsc::channel();
         Self { 
             device: Arc::clone(&device),
-            render_pipelines: HashMap::new(),
-            shader_configs: HashMap::new(),
+            pipeline_registry: ResourceRegistry::new(),
+            // config_registry: ResourceRegistry::new(),
             surface_format: format,
-            tx, rx
         }
-    }
-
-    /// requests a rendering pipeline to be created, if not already done.
-    pub fn request_pipeline(&mut self, shader_config: ShaderConfig) {
-        if self.render_pipelines.contains_key(&shader_config.name) {
-            return; // pipeline already requested
-        }
-
-        let config = shader_config.clone();
-        let device = Arc::clone(&self.device);
-        let format = self.surface_format;
-        let tx = self.tx.clone();
-
-        self.render_pipelines.insert(shader_config.name.clone(), None);
-        self.shader_configs.insert(shader_config.name.clone(), shader_config);
-
-        // have the pipeline be created in a separate thread
-        task::spawn(async move {
-            let shader_source = std::fs::read_to_string(&config.path)
-                .expect("Failed to read shader file");
-
-            let pipeline = create_pipeline(&device, &config, format, shader_source).await;
-            let _ = tx.send((config.name, pipeline));
-        });
-    }
-
-    /// checks if any pipelines have completed compilation, and if so, updates the pipeline map. Should be called regularly (e.g. once per frame)
-    pub fn check_ready_pipelines(&mut self) {
-        while let Ok((name, pipeline)) = self.rx.try_recv() {
-            self.render_pipelines.insert(name, Some(pipeline));
-        }
-    }
-
-    /// given a pipeline name, returns an Option with a reference to the corresponding RenderPipeline instance. the None variant signifies that the pipeline was not created or has not finished compliling
-    pub fn get_pipeline(&self, pipeline_name: &str) -> Option<&wgpu::RenderPipeline> {
-        return self.render_pipelines.get(pipeline_name)?.as_ref();
     }
 }
 
-/// creates a new rendering pipeline using a gpu device, shader config, and texture format
+impl Handler<RenderPipelineConfig, wgpu::RenderPipeline> for RenderPipelineHandler {
+    fn request_new(&mut self, pipeline_config: &RenderPipelineConfig) {
+        let config_cpy = pipeline_config.clone();
+        let device_cpy = Arc::clone(&self.device);
+        let surf_format = self.surface_format;
+
+        self.pipeline_registry.request_new(
+            &config_cpy.name.clone(), 
+            create_pipeline(device_cpy, config_cpy, surf_format)
+        );
+    }
+
+    fn sync(&mut self) {
+        self.pipeline_registry.sync();
+    }
+
+    fn get(&self, pipeline_name: &String) -> Option<&wgpu::RenderPipeline> {
+        self.pipeline_registry.get(pipeline_name)
+    }
+
+    fn remove(&mut self, pipeline_name: &String) {
+        self.pipeline_registry.remove(pipeline_name);
+    }
+}
+
+/// creates a new rendering pipeline using a gpu device, pipeline config, and texture format
 async fn create_pipeline(
-    device: &wgpu::Device, 
-    shader_config: &ShaderConfig, 
+    device: Arc<wgpu::Device>, 
+    config: RenderPipelineConfig, 
     format: wgpu::TextureFormat,
-    shader_source: String,
-) -> wgpu::RenderPipeline {
+) -> Result<wgpu::RenderPipeline, String> {
+    let shader_source = match std::fs::read_to_string(&config.path) {
+        Ok(source) => source,
+        Err(e) => {
+            return Err(format!("Failed to read shader file '{}': {e}", &config.path));
+        }
+    };
+
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some(format!("[ShaderModule]{}", shader_config.name).as_str()),
+        label: Some(format!("[ShaderModule]{}", config.name).as_str()),
         source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(&shader_source)),
     });
 
@@ -103,17 +108,17 @@ async fn create_pipeline(
         });
 
     let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some(format!("[Pipeline]{}", shader_config.name).as_str()),
+        label: Some(format!("[Pipeline]{}", config.name).as_str()),
         layout: Some(&pipeline_layout),
         vertex: wgpu::VertexState {
             module: &shader,
-            entry_point: Some(&shader_config.vert_main),
+            entry_point: Some(&config.vert_main),
             buffers: &[Vertex::desc()],
             compilation_options: wgpu::PipelineCompilationOptions::default(),
         },
         fragment: Some(wgpu::FragmentState {
             module: &shader,
-            entry_point: Some(&shader_config.frag_main),
+            entry_point: Some(&config.frag_main),
             targets: &[Some(wgpu::ColorTargetState {
                 format,
                 blend: Some(wgpu::BlendState::REPLACE),
@@ -143,5 +148,5 @@ async fn create_pipeline(
         cache: None,
     });
 
-    return render_pipeline;
+    return Ok(render_pipeline);
 }

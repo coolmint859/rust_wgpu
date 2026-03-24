@@ -1,6 +1,7 @@
 use std::sync::atomic::{ AtomicU32, Ordering };
 
-use crate::graphics::vertex::Vertex;
+use super::vertex::Vertex;
+use super::traits::ResourceDescriptor;
 
 static MESH_COUNTER: AtomicU32 = AtomicU32::new(0);
 
@@ -9,6 +10,12 @@ pub struct Mesh {
     id: u32,
     vertex_data: Vec<Vertex>,
     index_data: Vec<u32>,
+}
+
+impl ResourceDescriptor for Mesh {
+    type Key = u32;
+
+    fn get_key(&self) -> &Self::Key { &self.id }
 }
 
 impl Mesh {
@@ -20,10 +27,6 @@ impl Mesh {
             vertex_data,
             index_data,
         }
-    }
-
-    pub fn id(&self) -> u32 {
-        self.id
     }
 
     pub fn vertex_data(&self) -> &Vec<Vertex> {

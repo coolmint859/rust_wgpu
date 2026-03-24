@@ -5,3 +5,5 @@ pub mod pipeline;
 pub mod core;
 pub mod mesh;
 pub mod buffer;
+pub mod traits;
+pub mod registry;
