@@ -1,68 +1,50 @@
 #![allow(dead_code)]
-use anyhow::Ok;
 use winit::window::Window;
 use std::sync::Arc;
 
-use crate::graphics::traits::Handler;
-use crate::graphics::traits::ResourceDescriptor;
-
-use super::renderer::Renderer;
-use super::vertex::Vertex;
-use super::pipeline;
-use super::buffer;
-use super::core::WgpuCore;
-use super::mesh::Mesh;
+use super::{
+    transient::*,
+    pipeline::{ RenderPipelineHandler },
+    traits::{ Handler, ResourceDescriptor, CommandBuffer },
+    buffer,
+    core::WgpuCore,
+};
 
 /// Represents the entire WebGPU rendering context
 pub struct WgpuContext {
     core: WgpuCore,
-    pipeline_handler: pipeline::RenderPipelineHandler,
-    buffer_handler: buffer::MeshBufferHandler,
-
-    mesh: Mesh,
+    pipeline_handler: RenderPipelineHandler,
+    mesh_buffer_handler: buffer::MeshBufferHandler,
 }
 
 impl WgpuContext {
     pub async fn new(window: Arc<Window>) -> Self {
         let core = WgpuCore::new(window).await;
 
-        let mut pipeline_handler = pipeline::RenderPipelineHandler::new(
+        let pipeline_handler = RenderPipelineHandler::new(
             &core.device,
             core.config.format.clone()
         );
 
-        pipeline_handler.request_new(
-            &pipeline::RenderPipelineConfig {
-                name: String::from("shader"),
-                path: String::from("assets/shaders/shader.wgsl"),
-                vert_main: String::from("vs_main"),
-                frag_main: String::from("fs_main"),
-            }
-        );
-
-        let mesh = Mesh::new(
-            vec![
-                Vertex { position: [-0.0868241, 0.49240386, 0.0], color: [0.5, 0.0, 0.5] }, // A
-                Vertex { position: [-0.49513406, 0.06958647, 0.0], color: [0.5, 0.0, 0.5] }, // B
-                Vertex { position: [-0.21918549, -0.44939706, 0.0], color: [0.5, 0.0, 0.5] }, // C
-                Vertex { position: [0.35966998, -0.3473291, 0.0], color: [0.5, 0.0, 0.5] }, // D
-                Vertex { position: [0.44147372, 0.2347359, 0.0], color: [0.5, 0.0, 0.5] }, // E
-            ],
-            vec![
-                0, 1, 4,
-                1, 2, 4,
-                2, 3, 4
-            ]
-        );
-
-        let mut buffer_handler = buffer::MeshBufferHandler::new(&core.device);
-        buffer_handler.request_new(&mesh);
+        let buffer_handler = buffer::MeshBufferHandler::new(&core.device);
 
         Self {
             core,
             pipeline_handler,
-            buffer_handler,
-            mesh
+            mesh_buffer_handler: buffer_handler,
+        }
+    }
+
+    pub fn init_resources(&mut self, init_state: StateInit) {
+        for command in init_state.get_commands() {
+            match command {
+                InitCommand::Mesh(mesh) => {
+                    self.mesh_buffer_handler.request_wait(&mesh)
+                },
+                InitCommand::Pipeline(pip_config) => {
+                    self.pipeline_handler.request_wait(&pip_config)
+                },
+            }
         }
     }
 
@@ -79,24 +61,14 @@ impl WgpuContext {
     /// update the state of the context
     pub fn update_state(&mut self) {
         self.pipeline_handler.sync();
-        self.buffer_handler.sync();
+        self.mesh_buffer_handler.sync();
     }
 
     /// render commands given to the renderer instance
-    pub fn render(&mut self, mut _renderer: Renderer) -> anyhow::Result<()> {
+    pub fn render(&mut self, renderer: Renderer) -> anyhow::Result<()> {
         if !self.core.is_surface_configured() {
             return Ok(());
         }
-
-        let pipeline = match self.pipeline_handler.get(&"shader".to_string()) {
-            Some(pipeline) => pipeline,
-            None => return Ok(())
-        };
-
-        let gpu_mesh = match self.buffer_handler.get(&self.mesh.get_key()) {
-            Some(gpu_mesh) => gpu_mesh,
-            None => return Ok(())
-        };
 
         let output = self.core.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -128,10 +100,26 @@ impl WgpuContext {
                 }
             );
 
-            render_pass.set_pipeline(pipeline);
-            render_pass.set_vertex_buffer(0, gpu_mesh.vertex_buffer.slice(..));
-            render_pass.set_index_buffer(gpu_mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-            render_pass.draw_indexed(0..gpu_mesh.num_indices, 0, 0..1);
+            for cmd in renderer.get_commands() {
+                match cmd {
+                    RenderCommand::Mesh(mesh, pip_config) => {
+                        let pipeline = match self.pipeline_handler.get(&pip_config.name) {
+                            Some(pipeline) => pipeline,
+                            None => continue
+                        };
+
+                        let gpu_mesh = match self.mesh_buffer_handler.get(&mesh.get_key()) {
+                            Some(gpu_mesh) => gpu_mesh,
+                            None => continue
+                        };
+
+                        render_pass.set_pipeline(pipeline);
+                        render_pass.set_vertex_buffer(0, gpu_mesh.vertex_buffer.slice(..));
+                        render_pass.set_index_buffer(gpu_mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                        render_pass.draw_indexed(0..gpu_mesh.num_indices, 0, 0..1);
+                    }
+                }
+            }
         }
 
         self.core.queue.submit(std::iter::once(encoder.finish()));

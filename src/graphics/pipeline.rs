@@ -3,21 +3,9 @@ use wgpu::Device;
 
 use super::vertex::Vertex;
 use super::traits::{ Handler, ResourceDescriptor };
+
+use super::presets::RenderPipelineConfig;
 use super::registry::ResourceRegistry;
-
-
-/// lightwight configuration struct for WGPU pipelines
-#[derive(Clone)]
-pub struct RenderPipelineConfig {
-    /// unique identifier for the pipeline
-    pub name: String,
-    /// the path to the pipeline's shader source file
-    pub path: String,
-    /// the name of the entry function into the vertex stage 
-    pub vert_main: String,
-    /// the name of the entry function into the fragment stage
-    pub frag_main: String,
-}
 
 impl ResourceDescriptor for RenderPipelineConfig {
     type Key = String;
@@ -61,12 +49,48 @@ impl Handler<RenderPipelineConfig, wgpu::RenderPipeline> for RenderPipelineHandl
     fn request_new(&mut self, pipeline_config: &RenderPipelineConfig) {
         let config_cpy = pipeline_config.clone();
         let device_cpy = Arc::clone(&self.device);
-        let surf_format = self.surface_format;
+        let txtr_format = self.surface_format;
 
         self.pipeline_registry.request_new(
             &config_cpy.name.clone(), 
-            create_pipeline(device_cpy, config_cpy, surf_format)
+            create_pipeline(device_cpy, config_cpy, txtr_format)
         );
+    }
+
+    fn request_wait(&mut self, pipeline_config: &RenderPipelineConfig) {
+        async fn wait_r_pipeline<K, R>(
+            registry: &mut ResourceRegistry<String, wgpu::RenderPipeline>,
+            device: Arc<Device>,
+            config: RenderPipelineConfig,
+            txtr_format: wgpu::TextureFormat,
+        ) -> Result<(), String> 
+        where 
+            K: std::hash::Hash + Eq + Clone + Send + 'static,
+            R: Send + 'static
+        {
+            let key = config.name.clone();
+            let pipeline = match create_pipeline(device, config, txtr_format).await {
+                Ok(pipeline) => pipeline,
+                Err(e) => return Err(e)
+            };
+
+            registry.store(&key, pipeline);
+            Ok(())
+        }
+
+        let config_cpy = pipeline_config.clone();
+        let device_cpy = Arc::clone(&self.device);
+        let txtr_format = self.surface_format;
+
+        pollster::block_on(
+            wait_r_pipeline::<String, wgpu::RenderPipeline>(
+                &mut self.pipeline_registry, 
+                device_cpy, 
+                config_cpy,
+                txtr_format
+            ))
+            .expect("Failed to Create Pipeline.");
+
     }
 
     fn sync(&mut self) {
@@ -79,6 +103,22 @@ impl Handler<RenderPipelineConfig, wgpu::RenderPipeline> for RenderPipelineHandl
 
     fn remove(&mut self, pipeline_name: &String) {
         self.pipeline_registry.remove(pipeline_name);
+    }
+
+    fn is_ready(&self, key: &String) -> bool {
+        return self.pipeline_registry.is_ready(key);
+    }
+
+    fn is_pending(&self, key: &String) -> bool {
+        return self.pipeline_registry.is_pending(key);
+    }
+
+    fn is_failed(&self, key: &String) -> bool {
+        return self.pipeline_registry.is_failed(key);
+    }
+
+    fn get_err(&self, key: &String) -> Option<&str> {
+        return self.pipeline_registry.get_err(key);
     }
 }
 

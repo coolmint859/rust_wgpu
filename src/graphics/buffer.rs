@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use wgpu::Device;
 use wgpu::util::DeviceExt;
 
 use super::mesh::Mesh;
@@ -65,6 +66,42 @@ impl Handler<Mesh, GpuMesh> for MeshBufferHandler {
         self.registry.request_new(mesh.get_key(), GpuMesh::new(device_cpy, mesh_cpy));
     }
 
+    /// Request a render pipeline and wait for it's creation. 
+    /// 
+    /// Note: This method blocks on the main thread.
+    fn request_wait(&mut self, mesh: &Mesh) {
+        async fn wait_func<K, R>(
+            registry: &mut ResourceRegistry<u32, GpuMesh>,
+            device: Arc<Device>,
+            mesh: Mesh
+        ) -> Result<(), String> 
+        where 
+            K: std::hash::Hash + Eq + Clone + Send + 'static,
+            R: Send + 'static
+        {
+            let key = mesh.get_key().clone();
+            let gpu_mesh = match GpuMesh::new(device, mesh).await {
+                Ok(gpu_mesh) => gpu_mesh,
+                Err(e) => return Err(e)
+            };
+
+            registry.store(&key, gpu_mesh);
+            Ok(())
+        }
+
+        let device_cpy = Arc::clone(&self.device);
+        let mesh_cpy = mesh.clone();
+
+        pollster::block_on(
+            wait_func::<String, GpuMesh>(
+                &mut self.registry, 
+                device_cpy,
+                mesh_cpy
+            ))
+            .expect("Failed to Create Pipeline.");
+
+    }
+
     fn sync(&mut self) {
         self.registry.sync();
     }
@@ -75,5 +112,21 @@ impl Handler<Mesh, GpuMesh> for MeshBufferHandler {
 
     fn remove(&mut self, mesh_id: &u32) {
         self.registry.remove(mesh_id);
+    }
+
+    fn is_ready(&self, key: &u32) -> bool {
+        return self.registry.is_ready(key);
+    }
+
+    fn is_pending(&self, key: &u32) -> bool {
+        return self.registry.is_pending(key);
+    }
+
+    fn is_failed(&self, key: &u32) -> bool {
+        return self.registry.is_failed(key);
+    }
+
+    fn get_err(&self, key: &u32) -> Option<&str> {
+        return self.registry.get_err(key);
     }
 }

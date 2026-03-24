@@ -1,6 +1,6 @@
 mod graphics;
 use graphics::context::WgpuContext;
-use graphics::renderer::Renderer;
+use graphics::transient::Renderer;
 use graphics::traits::AppState;
 
 use std::sync::Arc;
@@ -16,6 +16,8 @@ use winit::{
     keyboard::{ KeyCode, PhysicalKey },
     window::{ Window, WindowId },
 };
+
+use crate::graphics::transient::StateInit;
 
 pub struct App<T> {
     app_state: T,
@@ -36,28 +38,32 @@ impl<T: AppState> ApplicationHandler for App<T> {
             let window_attributes = Window::default_attributes().with_title("WGPU");
             let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
 
-            let state = pollster::block_on(WgpuContext::new(window.clone()));
+            let mut wgpu_ctx = pollster::block_on(WgpuContext::new(window.clone()));
 
-            self.wgpu_ctx = Some(state);
+            let mut init_state = StateInit::new();
+            self.app_state.init(&mut init_state);
+            wgpu_ctx.init_resources(init_state);
+
+            self.wgpu_ctx = Some(wgpu_ctx);
         }
     }
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        let wgpu_ctx = match &mut self.wgpu_ctx {
+            Some(wgpu_ctx) => wgpu_ctx,
+            None => return
+        };
+
         let curr_time = time::Instant::now();
         let dt = (curr_time - self.prev_time).as_secs_f32();
         self.prev_time = curr_time;
 
         println!("FPS: {}", 1.0/dt);
 
-        let wgpu_ctx = match &mut self.wgpu_ctx {
-            Some(wgpu_ctx) => wgpu_ctx,
-            None => return
-        };
-        wgpu_ctx.update_state();
-
         self.app_state.process_input();
         self.app_state.update(dt);
 
+        wgpu_ctx.update_state();
         wgpu_ctx.prepare_next_frame();
     }
 

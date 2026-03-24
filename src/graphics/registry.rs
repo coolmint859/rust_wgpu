@@ -2,11 +2,11 @@
 use std::{collections::HashMap, hash::Hash, sync::mpsc, time::Instant};
 
 /// Represents the state of a resource requested by the user of a registry instance.
-enum ResourceStatus<R> {
+pub enum ResourceStatus<R> {
     /// Resource has been requested but is not yet ready
     Pending(Instant),
 
-    /// Resource is ready for retreival
+    /// Resource is ready for retrieval
     Ready(R),
 
     /// Resource failed to complete
@@ -136,6 +136,12 @@ where
         });
     }
 
+    /// Store a preloaded resource into the registry
+    pub fn store(&mut self, key: &K, resource: R) {
+        let status = ResourceStatus::Ready(resource);
+        self.storage_map.insert(key.clone(), status);
+    }
+
     /// Remove a resource from the map. Can be used for manual retries.
     pub fn remove(&mut self, key: &K) {
         if self.storage_map.contains_key(key) {
@@ -194,6 +200,11 @@ where
     /// Get the error message of a failed resource, if applicable.
     pub fn get_err(&self, key: &K) -> Option<&str> {
         return self.storage_map.get(key)?.error_msg();
+    }
+
+    /// Get the status of a resource. None is returned if the resource does not exist.
+    pub fn status_of(&self, key: &K) -> Option<&ResourceStatus<R>> {
+        return Some(self.storage_map.get(key)?);
     }
 
     /// Get a completed resource. Returns None if the resource does not exist/is unavailable.
