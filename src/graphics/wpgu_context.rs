@@ -6,7 +6,7 @@ use super::{
     transient::*,
     pipeline::{ RenderPipelineHandler },
     traits::{ Handler, ResourceDescriptor, CommandBuffer },
-    buffer,
+    mesh_buffer,
     core::WgpuCore,
 };
 
@@ -14,7 +14,7 @@ use super::{
 pub struct WgpuContext {
     core: WgpuCore,
     pipeline_handler: RenderPipelineHandler,
-    mesh_buffer_handler: buffer::MeshBufferHandler,
+    mesh_buffer_handler: mesh_buffer::MeshBufferHandler,
 }
 
 impl WgpuContext {
@@ -26,7 +26,7 @@ impl WgpuContext {
             core.config.format.clone()
         );
 
-        let buffer_handler = buffer::MeshBufferHandler::new(&core.device);
+        let buffer_handler = mesh_buffer::MeshBufferHandler::new(&core.device);
 
         Self {
             core,
@@ -35,14 +35,15 @@ impl WgpuContext {
         }
     }
 
+    /// initialize resources prior to rendering state
     pub fn init_resources(&mut self, init_state: StateInit) {
         for command in init_state.get_commands() {
             match command {
                 InitCommand::Mesh(mesh) => {
-                    self.mesh_buffer_handler.request_wait(&mesh)
+                    self.mesh_buffer_handler.request_wait(Arc::clone(&mesh.data))
                 },
                 InitCommand::Pipeline(pip_config) => {
-                    self.pipeline_handler.request_wait(&pip_config)
+                    self.pipeline_handler.request_wait(pip_config)
                 },
             }
         }
@@ -50,18 +51,15 @@ impl WgpuContext {
 
     /// prepare the context for the next frame
     pub fn prepare_next_frame(&mut self) {
+        self.pipeline_handler.sync();
+        self.mesh_buffer_handler.sync();
+
         self.core.window.request_redraw();
     } 
 
     /// resize the surface that the context renders to (also resizes the window)
     pub fn resize(&mut self, width: u32, height: u32) {
         self.core.resize(width, height);
-    }
-
-    /// update the state of the context
-    pub fn update_state(&mut self) {
-        self.pipeline_handler.sync();
-        self.mesh_buffer_handler.sync();
     }
 
     /// render commands given to the renderer instance
@@ -87,9 +85,7 @@ impl WgpuContext {
                         resolve_target: None,
                         depth_slice: None,
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color {
-                                r: 0.1, g: 0.2, b: 0.3, a: 1.0,
-                            }),
+                            load: wgpu::LoadOp::Clear(*renderer.get_bg_color()),
                             store: wgpu::StoreOp::Store,
                         }
                     })],
@@ -105,12 +101,18 @@ impl WgpuContext {
                     RenderCommand::Mesh(mesh, pip_config) => {
                         let pipeline = match self.pipeline_handler.get(&pip_config.name) {
                             Some(pipeline) => pipeline,
-                            None => continue
+                            None => {
+                                self.pipeline_handler.request_new(Arc::clone(&pip_config));
+                                continue;
+                            }
                         };
 
-                        let gpu_mesh = match self.mesh_buffer_handler.get(&mesh.get_key()) {
+                        let gpu_mesh = match self.mesh_buffer_handler.get(&mesh.data.get_key()) {
                             Some(gpu_mesh) => gpu_mesh,
-                            None => continue
+                            None => {
+                                self.mesh_buffer_handler.request_new(Arc::clone(&mesh.data));
+                                continue;
+                            }
                         };
 
                         render_pass.set_pipeline(pipeline);

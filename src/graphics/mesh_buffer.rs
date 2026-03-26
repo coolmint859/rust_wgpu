@@ -1,8 +1,7 @@
 use std::sync::Arc;
-use wgpu::Device;
 use wgpu::util::DeviceExt;
 
-use super::mesh::Mesh;
+use super::mesh::MeshData;
 use super::traits::{ Handler, ResourceDescriptor };
 use super::registry::ResourceRegistry;
 
@@ -14,7 +13,7 @@ pub struct GpuMesh {
 }
 
 impl GpuMesh {
-    pub async fn new(device: Arc<wgpu::Device>, mesh: Mesh) -> Result<GpuMesh, String> {
+    pub async fn new(device: Arc<wgpu::Device>, mesh: Arc<MeshData>) -> Result<GpuMesh, String> {
         let mesh_id = mesh.get_key().clone();
 
         let vertex_buffer = device.create_buffer_init(
@@ -59,47 +58,26 @@ impl MeshBufferHandler {
     }
 }
 
-impl Handler<Mesh, GpuMesh> for MeshBufferHandler {
-    fn request_new(&mut self, mesh: &Mesh) {
-        let mesh_cpy = mesh.clone();
+impl Handler<MeshData, GpuMesh> for MeshBufferHandler {
+    fn request_new(&mut self, mesh_data: Arc<MeshData>) {
+        let mesh_cpy = Arc::clone(&mesh_data);
         let device_cpy = Arc::clone(&self.device);
-        self.registry.request_new(mesh.get_key(), GpuMesh::new(device_cpy, mesh_cpy));
+        self.registry.request_new(mesh_data.get_key(), GpuMesh::new(device_cpy, mesh_cpy));
     }
 
-    /// Request a render pipeline and wait for it's creation. 
-    /// 
-    /// Note: This method blocks on the main thread.
-    fn request_wait(&mut self, mesh: &Mesh) {
-        async fn wait_func<K, R>(
-            registry: &mut ResourceRegistry<u32, GpuMesh>,
-            device: Arc<Device>,
-            mesh: Mesh
-        ) -> Result<(), String> 
-        where 
-            K: std::hash::Hash + Eq + Clone + Send + 'static,
-            R: Send + 'static
-        {
-            let key = mesh.get_key().clone();
-            let gpu_mesh = match GpuMesh::new(device, mesh).await {
-                Ok(gpu_mesh) => gpu_mesh,
-                Err(e) => return Err(e)
-            };
-
-            registry.store(&key, gpu_mesh);
-            Ok(())
-        }
-
+    fn request_wait(&mut self, mesh_data: Arc<MeshData>) {
         let device_cpy = Arc::clone(&self.device);
-        let mesh_cpy = mesh.clone();
+        let mesh_cpy = Arc::clone(&mesh_data);
 
-        pollster::block_on(
-            wait_func::<String, GpuMesh>(
-                &mut self.registry, 
-                device_cpy,
-                mesh_cpy
-            ))
-            .expect("Failed to Create Pipeline.");
+        let result = self.registry.request_wait(
+            mesh_data.get_key(),
+            GpuMesh::new(device_cpy, mesh_cpy),
+        );
 
+        match result {
+            Err(e) => eprintln!("Error creating mesh buffers: {e}"),
+            _ => {}
+        }
     }
 
     fn sync(&mut self) {
@@ -114,19 +92,23 @@ impl Handler<Mesh, GpuMesh> for MeshBufferHandler {
         self.registry.remove(mesh_id);
     }
 
-    fn is_ready(&self, key: &u32) -> bool {
-        return self.registry.is_ready(key);
+    fn contains(&self, mesh_id: &u32) -> bool {
+        return self.registry.contains(mesh_id);
     }
 
-    fn is_pending(&self, key: &u32) -> bool {
-        return self.registry.is_pending(key);
+    fn is_ready(&self, mesh_id: &u32) -> bool {
+        return self.registry.is_ready(mesh_id);
     }
 
-    fn is_failed(&self, key: &u32) -> bool {
-        return self.registry.is_failed(key);
+    fn is_pending(&self, mesh_id: &u32) -> bool {
+        return self.registry.is_pending(mesh_id);
     }
 
-    fn get_err(&self, key: &u32) -> Option<&str> {
-        return self.registry.get_err(key);
+    fn is_failed(&self, mesh_id: &u32) -> bool {
+        return self.registry.is_failed(mesh_id);
+    }
+
+    fn get_err(&self, mesh_id: &u32) -> Option<&str> {
+        return self.registry.get_err(mesh_id);
     }
 }

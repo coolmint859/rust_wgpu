@@ -136,6 +136,21 @@ where
         });
     }
 
+    /// Request a new resource and wait for it's completion, blocking the calling thread until complete.
+    /// 
+    /// Returns a result object describing whether the the resource was successfuly created.
+    pub fn request_wait<W>(&mut self, key: &K, worker: W) -> Result<(), String>
+    where W: Future<Output = Result<R, String>> + Send + 'static
+    {
+        match pollster::block_on(worker) {
+            Ok(res) => {
+                self.store(key, res);
+                return Ok(());
+            },
+            Err(e) => return Err(e),
+        };
+    }
+
     /// Store a preloaded resource into the registry
     pub fn store(&mut self, key: &K, resource: R) {
         let status = ResourceStatus::Ready(resource);
@@ -171,6 +186,11 @@ where
                 }
             }
         }
+    }
+
+    /// Check if the registry contains a resource (in any state)
+    pub fn contains(&self, key: &K) -> bool {
+        return self.storage_map.contains_key(key);
     }
 
     /// Check if a requested resource has finished completion and is stored in the map.

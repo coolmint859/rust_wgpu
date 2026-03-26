@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use super::transient::{Renderer, StateInit};
 
-use std::hash::Hash;
+use std::{hash::Hash, sync::Arc};
 
 pub trait AppState {
     /// Called when the app changes to this state; intitializes this state of the app
@@ -36,12 +36,12 @@ pub trait Handler<D, R>
 where D: ResourceDescriptor
 {
     /// Request creation of a new resource through it's descriptor; intitializes a worker thread
-    fn request_new(&mut self, desc: &D);
+    fn request_new(&mut self, desc: Arc<D>);
 
     /// Request a resource and wait for its creation.
     /// 
     /// Note: This method blocks on the main thread.
-    fn request_wait(&mut self, resource: &D);
+    fn request_wait(&mut self, resource:  Arc<D>);
 
     /// Syncronize the internal worker threads with the main thread, making available any completed resources. Should be called regularly
     fn sync(&mut self);
@@ -51,6 +51,9 @@ where D: ResourceDescriptor
 
     // Remove a stored instance from the internal registry.
     fn remove(&mut self, key: &D::Key);
+
+    /// Check if a resource exists in the handler (in any state)
+    fn contains(&self, key: &D::Key) -> bool;
 
     /// Check if a requested resource has finished completion and is stored in the map.
     fn is_ready(&self, key: &D::Key) -> bool;

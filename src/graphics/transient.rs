@@ -9,17 +9,31 @@ use super::presets::RenderPipelineConfig;
 
 #[derive(Clone)]
 pub enum RenderCommand {
-    Mesh(Arc<Mesh>, RenderPipelineConfig)
+    Mesh(Arc<Mesh>, Arc<RenderPipelineConfig>)
 }
 
 /// Command Buffer for draw calls
 pub struct Renderer {
-    commands: Vec<RenderCommand>
+    commands: Vec<RenderCommand>,
+    clear_color: wgpu::Color,
 }
 
 impl Renderer {
     pub fn new() -> Self {
-        Self { commands: Vec::new() }
+        Self { 
+            commands: Vec::new(),
+            clear_color: wgpu::Color::BLACK
+        }
+    }
+
+    // set the background color for the frame
+    pub fn set_bg_color(&mut self, r: f64, g: f64, b: f64) {
+        self.clear_color = wgpu::Color { r, g, b, a: 1.0 }
+    }
+
+    // get the currently set background color (default is black)
+    pub fn get_bg_color(&self) -> &wgpu::Color {
+        &self.clear_color
     }
 
     /// draw an object to the screen via a RenderCommand
@@ -37,7 +51,7 @@ impl CommandBuffer<RenderCommand> for Renderer {
 #[derive(Clone)]
 pub enum InitCommand {
     Mesh(Arc<Mesh>),
-    Pipeline(RenderPipelineConfig),
+    Pipeline(Arc<RenderPipelineConfig>),
 }
 
 /// Command Buffer for app state initialization
@@ -55,7 +69,7 @@ impl StateInit {
     /// Add a pipeline to the initialization commands. 
     /// 
     /// Note: these are considered 'immediate', and will block the event loop until the pipeline is created.
-    pub fn add_render_pipeline(&mut self, desc: RenderPipelineConfig) {
+    pub fn add_render_pipeline(&mut self, desc: Arc<RenderPipelineConfig>) {
         self.commands.push(InitCommand::Pipeline(desc));
     }
 

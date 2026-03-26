@@ -46,51 +46,31 @@ impl RenderPipelineHandler {
 }
 
 impl Handler<RenderPipelineConfig, wgpu::RenderPipeline> for RenderPipelineHandler {
-    fn request_new(&mut self, pipeline_config: &RenderPipelineConfig) {
-        let config_cpy = pipeline_config.clone();
+    fn request_new(&mut self, pipeline_config: Arc<RenderPipelineConfig>) {
+        let config_cpy = Arc::clone(&pipeline_config);
         let device_cpy = Arc::clone(&self.device);
         let txtr_format = self.surface_format;
 
         self.pipeline_registry.request_new(
-            &config_cpy.name.clone(), 
-            create_pipeline(device_cpy, config_cpy, txtr_format)
+            pipeline_config.get_key(), 
+            create_render_pipeline(device_cpy, config_cpy, txtr_format)
         );
     }
 
-    fn request_wait(&mut self, pipeline_config: &RenderPipelineConfig) {
-        async fn wait_r_pipeline<K, R>(
-            registry: &mut ResourceRegistry<String, wgpu::RenderPipeline>,
-            device: Arc<Device>,
-            config: RenderPipelineConfig,
-            txtr_format: wgpu::TextureFormat,
-        ) -> Result<(), String> 
-        where 
-            K: std::hash::Hash + Eq + Clone + Send + 'static,
-            R: Send + 'static
-        {
-            let key = config.name.clone();
-            let pipeline = match create_pipeline(device, config, txtr_format).await {
-                Ok(pipeline) => pipeline,
-                Err(e) => return Err(e)
-            };
-
-            registry.store(&key, pipeline);
-            Ok(())
-        }
-
-        let config_cpy = pipeline_config.clone();
+    fn request_wait(&mut self, pipeline_config: Arc<RenderPipelineConfig>) {
+        let config_cpy = Arc::clone(&pipeline_config);
         let device_cpy = Arc::clone(&self.device);
         let txtr_format = self.surface_format;
 
-        pollster::block_on(
-            wait_r_pipeline::<String, wgpu::RenderPipeline>(
-                &mut self.pipeline_registry, 
-                device_cpy, 
-                config_cpy,
-                txtr_format
-            ))
-            .expect("Failed to Create Pipeline.");
+        let result = self.pipeline_registry.request_wait(
+            pipeline_config.get_key(),
+            create_render_pipeline(device_cpy, config_cpy, txtr_format)
+        );
 
+        match result {
+            Err(e) => eprintln!("Error creating render pipeline: {e}"),
+            _ => {}
+        }
     }
 
     fn sync(&mut self) {
@@ -105,88 +85,94 @@ impl Handler<RenderPipelineConfig, wgpu::RenderPipeline> for RenderPipelineHandl
         self.pipeline_registry.remove(pipeline_name);
     }
 
-    fn is_ready(&self, key: &String) -> bool {
-        return self.pipeline_registry.is_ready(key);
+    fn contains(&self, pipeline_name: &String) -> bool {
+        return self.pipeline_registry.contains(pipeline_name);
     }
 
-    fn is_pending(&self, key: &String) -> bool {
-        return self.pipeline_registry.is_pending(key);
+    fn is_ready(&self, pipeline_name: &String) -> bool {
+        return self.pipeline_registry.is_ready(pipeline_name);
     }
 
-    fn is_failed(&self, key: &String) -> bool {
-        return self.pipeline_registry.is_failed(key);
+    fn is_pending(&self, pipeline_name: &String) -> bool {
+        return self.pipeline_registry.is_pending(pipeline_name);
     }
 
-    fn get_err(&self, key: &String) -> Option<&str> {
-        return self.pipeline_registry.get_err(key);
+    fn is_failed(&self, pipeline_name: &String) -> bool {
+        return self.pipeline_registry.is_failed(pipeline_name);
+    }
+
+    fn get_err(&self, pipeline_name: &String) -> Option<&str> {
+        return self.pipeline_registry.get_err(pipeline_name);
     }
 }
 
 /// creates a new rendering pipeline using a gpu device, pipeline config, and texture format
-async fn create_pipeline(
+async fn create_render_pipeline(
     device: Arc<wgpu::Device>, 
-    config: RenderPipelineConfig, 
+    config: Arc<RenderPipelineConfig>, 
     format: wgpu::TextureFormat,
 ) -> Result<wgpu::RenderPipeline, String> {
-    let shader_source = match std::fs::read_to_string(&config.path) {
+    let shader_source = match std::fs::read_to_string(&config.shader_path) {
         Ok(source) => source,
         Err(e) => {
-            return Err(format!("Failed to read shader file '{}': {e}", &config.path));
+            return Err(format!("Failed to read shader file '{}': {e}", &config.shader_path));
         }
     };
 
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some(format!("[ShaderModule]{}", config.name).as_str()),
+        label: Some(format!("[Shader Module] {}@{}", config.name, config.shader_path).as_str()),
         source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(&shader_source)),
     });
 
     let pipeline_layout = device.create_pipeline_layout(
         &wgpu::PipelineLayoutDescriptor {
-            label: Some("Render Pipeline Layout"),
+            label: Some(format!("[Pipeline Layout] {}", config.name).as_str()),
             bind_group_layouts: &[],
             immediate_size: 0,
         });
 
-    let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some(format!("[Pipeline]{}", config.name).as_str()),
-        layout: Some(&pipeline_layout),
-        vertex: wgpu::VertexState {
-            module: &shader,
-            entry_point: Some(&config.vert_main),
-            buffers: &[Vertex::desc()],
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-        },
-        fragment: Some(wgpu::FragmentState {
-            module: &shader,
-            entry_point: Some(&config.frag_main),
-            targets: &[Some(wgpu::ColorTargetState {
-                format,
-                blend: Some(wgpu::BlendState::REPLACE),
-                write_mask: wgpu::ColorWrites::ALL,
-            })],
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-        }),
-        primitive: wgpu::PrimitiveState {
-            topology: wgpu::PrimitiveTopology::TriangleList,
-            strip_index_format: None,
-            front_face: wgpu::FrontFace::Ccw,
-            cull_mode: Some(wgpu::Face::Back),
-            // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
-            polygon_mode: wgpu::PolygonMode::Fill,
-            // Requires Features::DEPTH_CLIP_CONTROL
-            unclipped_depth: false,
-            // Requires Features::CONSERVATIVE_RASTERIZATION
-            conservative: false,
-        },
-        depth_stencil: None,
-        multisample: wgpu::MultisampleState {
-            count: 1,
-            mask: !0,
-            alpha_to_coverage_enabled: false,
-        },
-        multiview_mask: None,
-        cache: None,
-    });
+    let render_pipeline = device.create_render_pipeline(
+        &wgpu::RenderPipelineDescriptor {
+            label: Some(format!("[Render Pipeline] {}", config.name).as_str()),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some(&config.vert_main),
+                buffers: &[Vertex::desc()],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some(&config.frag_main),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
+                polygon_mode: wgpu::PolygonMode::Fill,
+                // Requires Features::DEPTH_CLIP_CONTROL
+                unclipped_depth: false,
+                // Requires Features::CONSERVATIVE_RASTERIZATION
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview_mask: None,
+            cache: None,
+        }
+    );
 
     return Ok(render_pipeline);
 }

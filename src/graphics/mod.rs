@@ -1,10 +1,10 @@
-pub mod context;
+pub mod wpgu_context;
 pub mod transient;
 pub mod vertex;
 pub mod pipeline;
 pub mod core;
 pub mod mesh;
-pub mod buffer;
+pub mod mesh_buffer;
 pub mod traits;
 pub mod registry;
 pub mod presets;

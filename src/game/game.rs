@@ -2,51 +2,36 @@
 use std::sync::Arc;
 
 use crate::graphics::{
-    mesh::Mesh, presets::Pipeline, traits::AppState, transient::{RenderCommand, Renderer, StateInit}, vertex::Vertex
+    mesh::Mesh, presets::Pipeline, presets::Shape2D, traits::AppState, transient::{RenderCommand, Renderer, StateInit}
 };
 
 pub struct Game {
-    mesh: Arc<Mesh>,
+    shapes: Vec<Arc<Mesh>>,
 }
 
 impl Game {
     pub fn new() -> Self {
-        // let shape = Mesh::new(
-        //     vec![
-        //         Vertex { position: [-0.0868241, 0.49240386, 0.0], color: [0.5, 0.0, 0.5] }, // A
-        //         Vertex { position: [-0.49513406, 0.06958647, 0.0], color: [0.5, 0.0, 0.5] }, // B
-        //         Vertex { position: [-0.21918549, -0.44939706, 0.0], color: [0.5, 0.0, 0.5] }, // C
-        //         Vertex { position: [0.35966998, -0.3473291, 0.0], color: [0.5, 0.0, 0.5] }, // D
-        //         Vertex { position: [0.44147372, 0.2347359, 0.0], color: [0.5, 0.0, 0.5] }, // E
-        //     ],
-        //     vec![
-        //         0, 1, 4,
-        //         1, 2, 4,
-        //         2, 3, 4
-        //     ]
-        // );
+        let mut shape_factory = Shape2D::new();
 
-        let shape = Mesh::new(
-            vec![
-                Vertex { position: [0.5, 0.5, 0.0], color: [0.5, 0.0, 0.5] }, // A
-                Vertex { position: [-0.5, 0.5, 0.0], color: [0.5, 0.0, 0.5] }, // B
-                Vertex { position: [-0.5, -0.5, 0.0], color: [0.5, 0.0, 0.5] }, // C
-                Vertex { position: [0.5, -0.5, 0.0], color: [0.5, 0.0, 0.5] }, // D
-            ],
-            vec![
-                0, 1, 2,
-                2, 3, 0
-            ]
+        let triangle = Mesh::new(
+            "triangle",
+            shape_factory.triangle()
         );
 
-        Self { mesh: Arc::new(shape) }
+        let square = Mesh::new(
+            "cube",
+            shape_factory.square(),
+        );
+
+        Self { 
+            shapes: vec![Arc::new(triangle), Arc::new(square)]
+        }
     }
 }
 
 impl AppState for Game {
-    fn init(&mut self, state_init: &mut StateInit) {
-        state_init.add_render_pipeline(Pipeline::ColoredSprite.instance());
-        state_init.add_mesh(Arc::clone(&self.mesh));
+    fn init(&mut self, _state_init: &mut StateInit) {
+
     }
 
     fn process_input(&mut self) {
@@ -58,9 +43,14 @@ impl AppState for Game {
     }
 
     fn render(&mut self, renderer: &mut Renderer) {
-        renderer.draw(
-            RenderCommand::Mesh(Arc::clone(&self.mesh), 
-            Pipeline::ColoredSprite.instance()),
-        );
+        renderer.set_bg_color(0.392, 0.584, 0.929);
+
+        for shape in self.shapes.iter() {
+            renderer.draw(
+            RenderCommand::Mesh(
+                Arc::clone(shape), 
+                Pipeline::ColoredSprite.get()
+            ))
+        }
     }
 }

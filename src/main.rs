@@ -1,5 +1,5 @@
 mod graphics;
-use graphics::context::WgpuContext;
+use graphics::wpgu_context::WgpuContext;
 use graphics::transient::Renderer;
 use graphics::traits::AppState;
 
@@ -58,12 +58,11 @@ impl<T: AppState> ApplicationHandler for App<T> {
         let dt = (curr_time - self.prev_time).as_secs_f32();
         self.prev_time = curr_time;
 
-        println!("FPS: {}", 1.0/dt);
+        // println!("FPS: {}", 1.0/dt);
 
         self.app_state.process_input();
         self.app_state.update(dt);
 
-        wgpu_ctx.update_state();
         wgpu_ctx.prepare_next_frame();
     }
 
