@@ -2,57 +2,101 @@
 use winit::window::Window;
 use std::sync::Arc;
 
-use super::{
-    transient::*,
-    pipeline::{ RenderPipelineHandler },
-    traits::{ Handler, ResourceDescriptor, CommandBuffer },
-    mesh_buffer,
-    core::WgpuCore,
+use crate::graphics::{
+    core::WgpuCore, 
+    init_state::{InitMode, StateInit}, 
+    layout_handler::LayoutHandler, 
+    m_buffer_handler::MeshBufferHandler, 
+    material::UniformGroup, 
+    presets::{BindingLayout, RenderPipelineConfig}, 
+    r_pipeline_handler::RenderPipelineHandler, 
+    registry::ResourceStatus, 
+    renderer::Renderer, 
+    traits::Handler, 
+    u_buffer_handler::UniformBufferHandler
 };
+
+/// group binding number for material uniforms
+pub const MATERIAL_GROUP: u32 = 0;
 
 /// Represents the entire WebGPU rendering context
 pub struct WgpuContext {
     core: WgpuCore,
+    layout_handler: LayoutHandler,
+    mesh_handler: MeshBufferHandler,
+    uniform_handler: UniformBufferHandler,
     pipeline_handler: RenderPipelineHandler,
-    mesh_buffer_handler: mesh_buffer::MeshBufferHandler,
 }
 
 impl WgpuContext {
     pub async fn new(window: Arc<Window>) -> Self {
         let core = WgpuCore::new(window).await;
 
-        let pipeline_handler = RenderPipelineHandler::new(
-            &core.device,
-            core.config.format.clone()
-        );
+        let mut layout_handler = LayoutHandler::new(Arc::clone(&core.device));
+        layout_handler.request_wait(BindingLayout::ColoredSprite.get());
 
-        let buffer_handler = mesh_buffer::MeshBufferHandler::new(&core.device);
+        let mesh_handler = MeshBufferHandler::new(Arc::clone(&core.device));
+        let uniform_handler = UniformBufferHandler::new(Arc::clone(&core.device));
+        let pipeline_handler = RenderPipelineHandler::new(Arc::clone(&core.device), core.config.format.clone());
 
         Self {
             core,
+            layout_handler,
+            mesh_handler,
+            uniform_handler,
             pipeline_handler,
-            mesh_buffer_handler: buffer_handler,
         }
     }
 
     /// initialize resources prior to rendering state
     pub fn init_resources(&mut self, init_state: StateInit) {
-        for command in init_state.get_commands() {
-            match command {
-                InitCommand::Mesh(mesh) => {
-                    self.mesh_buffer_handler.request_wait(Arc::clone(&mesh.data))
+        for rpip_cmd in init_state.get_rpip_cmds() {
+            let rpip_config_cpy = rpip_cmd.config.clone();
+            self.init_pipeline(rpip_config_cpy, InitMode::Deferred);
+        }
+        
+        for bgl_cmd in init_state.get_bgl_cmds() {
+            match bgl_cmd.mode {
+                InitMode::Immediate => {
+                    self.layout_handler.request_wait(Arc::new(bgl_cmd.config));
                 },
-                InitCommand::Pipeline(pip_config) => {
-                    self.pipeline_handler.request_wait(pip_config)
-                },
+                InitMode::Deferred => {
+                    self.layout_handler.request_new(Arc::new(bgl_cmd.config));
+                }
             }
         }
     }
 
-    /// prepare the context for the next frame
+    fn init_pipeline(&mut self, config: RenderPipelineConfig, mode: InitMode) {
+        let mut layouts = Vec::new();
+
+        for id in &config.layout_ids {
+            if let Some(layout) = self.layout_handler.get(&id) {
+                layouts.push(Arc::clone(layout));
+            } else {
+                panic!("Required layout {} not found for pipeline {}", id, config.name);
+            }
+        }
+
+        let mut rpip_config_cpy = config.clone();
+        rpip_config_cpy.layouts = layouts;
+
+        match mode {
+            InitMode::Immediate => {
+                self.pipeline_handler.request_wait(Arc::new(rpip_config_cpy));
+            },
+            InitMode::Deferred => {
+                self.pipeline_handler.request_new(Arc::new(rpip_config_cpy));
+            }
+        }
+    }
+
+    /// Prepare the context for the next frame
     pub fn prepare_next_frame(&mut self) {
+        self.layout_handler.sync();
+        self.mesh_handler.sync();
         self.pipeline_handler.sync();
-        self.mesh_buffer_handler.sync();
+        self.uniform_handler.sync();
 
         self.core.window.request_redraw();
     } 
@@ -68,6 +112,26 @@ impl WgpuContext {
             return Ok(());
         }
 
+        // UPDATE PASS: Update uniform buffers
+        for cmd in &renderer.update_cmds() {
+            if let Some(uniforms) = self.uniform_handler.get(&cmd.material_id) {
+                for entry in &cmd.entries {
+                    let buffer = uniforms.buffers.get(&entry.bind_slot).unwrap();
+
+                    self.core.queue.write_buffer(buffer, 0, &entry.data);
+                }
+            } else if !self.uniform_handler.contains(&cmd.material_id.clone()) {
+                self.uniform_handler.request_new(
+                    Arc::new(UniformGroup {
+                        key: cmd.material_id.clone(),
+                        contents: cmd.entries.to_vec(),
+                        bind_layout: Arc::clone(self.layout_handler.get(&cmd.material_id).unwrap())
+                    })
+                );
+            }
+        }
+
+        // DRAW PASS: render meshes to screen
         let output = self.core.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -96,30 +160,39 @@ impl WgpuContext {
                 }
             );
 
-            for cmd in renderer.get_commands() {
-                match cmd {
-                    RenderCommand::Mesh(mesh, pip_config) => {
-                        let pipeline = match self.pipeline_handler.get(&pip_config.name) {
-                            Some(pipeline) => pipeline,
-                            None => {
-                                self.pipeline_handler.request_new(Arc::clone(&pip_config));
-                                continue;
-                            }
-                        };
+            let mut missing_meshes: Vec<u32> = Vec::new();
+            let mut missing_pipelines: Vec<String> = Vec::new();
 
-                        let gpu_mesh = match self.mesh_buffer_handler.get(&mesh.data.get_key()) {
-                            Some(gpu_mesh) => gpu_mesh,
-                            None => {
-                                self.mesh_buffer_handler.request_new(Arc::clone(&mesh.data));
-                                continue;
-                            }
-                        };
+            for cmd in renderer.draw_cmds() {
+                if self.mesh_handler.status_of(&cmd.mesh_id).is_none() {
+                    self.mesh_handler.request_new(cmd.data);
+                    missing_meshes.push(cmd.mesh_id);
+                }
+                if self.pipeline_handler.status_of(&cmd.material_id).is_none() {
+                    self.init_pipeline(cmd.rpip_config, InitMode::Deferred);
 
-                        render_pass.set_pipeline(pipeline);
-                        render_pass.set_vertex_buffer(0, gpu_mesh.vertex_buffer.slice(..));
-                        render_pass.set_index_buffer(gpu_mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                        render_pass.draw_indexed(0..gpu_mesh.num_indices, 0, 0..1);
-                    }
+                    missing_pipelines.push(cmd.material_id);
+                }
+            }
+
+            for cmd in renderer.draw_cmds() {
+                if missing_meshes.contains(&cmd.mesh_id) || missing_pipelines.contains(&cmd.material_id) {
+                    continue;
+                }
+
+                let m_status = self.mesh_handler.status_of(&cmd.mesh_id);
+                let p_status = self.pipeline_handler.status_of(&cmd.material_id);
+                let u_status = self.uniform_handler.status_of(&cmd.material_id);
+
+                if let (Some(ResourceStatus::Ready(mesh)), 
+                        Some(ResourceStatus::Ready(pipeline)), 
+                        Some(ResourceStatus::Ready(uniforms))) = (m_status, p_status, u_status) 
+                {
+                    render_pass.set_pipeline(pipeline);
+                    render_pass.set_bind_group(MATERIAL_GROUP, &uniforms.bind_group, &[]);
+                    render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                    render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                    render_pass.draw_indexed(0..mesh.num_indices, 0, 0..1);
                 }
             }
         }

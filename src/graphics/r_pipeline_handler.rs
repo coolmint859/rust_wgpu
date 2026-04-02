@@ -5,7 +5,7 @@ use super::vertex::Vertex;
 use super::traits::{ Handler, ResourceDescriptor };
 
 use super::presets::RenderPipelineConfig;
-use super::registry::ResourceRegistry;
+use super::registry::{ResourceRegistry, ResourceStatus};
 
 impl ResourceDescriptor for RenderPipelineConfig {
     type Key = String;
@@ -31,11 +31,7 @@ pub struct RenderPipelineHandler {
 
 impl RenderPipelineHandler {
     /// Create a new Pipeline Handler
-    /// 
-    /// device: the GPU device for which to create pipelines with
-    /// 
-    /// format: the texture format for the pipelines
-    pub fn new(device: &Arc<Device>, format: wgpu::TextureFormat) -> Self {
+    pub fn new(device: Arc<Device>, format: wgpu::TextureFormat) -> Self {
         Self { 
             device: Arc::clone(&device),
             pipeline_registry: ResourceRegistry::new(),
@@ -89,20 +85,8 @@ impl Handler<RenderPipelineConfig, wgpu::RenderPipeline> for RenderPipelineHandl
         return self.pipeline_registry.contains(pipeline_name);
     }
 
-    fn is_ready(&self, pipeline_name: &String) -> bool {
-        return self.pipeline_registry.is_ready(pipeline_name);
-    }
-
-    fn is_pending(&self, pipeline_name: &String) -> bool {
-        return self.pipeline_registry.is_pending(pipeline_name);
-    }
-
-    fn is_failed(&self, pipeline_name: &String) -> bool {
-        return self.pipeline_registry.is_failed(pipeline_name);
-    }
-
-    fn get_err(&self, pipeline_name: &String) -> Option<&str> {
-        return self.pipeline_registry.get_err(pipeline_name);
+    fn status_of(&self, pipeline_name: &String) -> Option<&ResourceStatus<wgpu::RenderPipeline>> {
+        return self.pipeline_registry.status_of(pipeline_name);
     }
 }
 
@@ -124,10 +108,17 @@ async fn create_render_pipeline(
         source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(&shader_source)),
     });
 
+    let layout_refs: Vec<&wgpu::BindGroupLayout> = config.layouts
+        .iter()
+        .map(|arc| arc.as_ref()) // or just &**arc
+        .collect();
+
+    println!("bind group layouts: {:?}", config.layouts);
+
     let pipeline_layout = device.create_pipeline_layout(
         &wgpu::PipelineLayoutDescriptor {
             label: Some(format!("[Pipeline Layout] {}", config.name).as_str()),
-            bind_group_layouts: &[],
+            bind_group_layouts: &layout_refs,
             immediate_size: 0,
         });
 
@@ -173,6 +164,8 @@ async fn create_render_pipeline(
             cache: None,
         }
     );
+
+    println!("Created pipeline '{}'", config.name);
 
     return Ok(render_pipeline);
 }

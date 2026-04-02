@@ -1,5 +1,9 @@
 #![allow(dead_code)]
-use super::transient::{Renderer, StateInit};
+use crate::graphics::{
+    registry::ResourceStatus, 
+    renderer::Renderer, 
+    init_state::StateInit,
+};
 
 use std::{hash::Hash, sync::Arc};
 
@@ -8,7 +12,7 @@ pub trait AppState {
     fn init(&mut self, state_init: &mut StateInit);
 
     /// Called at the beginning of each frame to process any input gathered
-    fn process_input(&mut self);
+    fn process_input(&mut self, dt: f32);
 
     /// Called once each frame; should be used to update internal state
     fn update(&mut self, dt: f32);
@@ -41,13 +45,13 @@ where D: ResourceDescriptor
     /// Request a resource and wait for its creation.
     /// 
     /// Note: This method blocks on the main thread.
-    fn request_wait(&mut self, resource:  Arc<D>);
+    fn request_wait(&mut self, desc: Arc<D>);
 
     /// Syncronize the internal worker threads with the main thread, making available any completed resources. Should be called regularly
     fn sync(&mut self);
 
     /// Get a reference to a stored instance of a resource via its key; returns None if the resource does not exist/is unavailable
-    fn get(&self, id: &D::Key) -> Option<&R>;
+    fn get(&self, key: &D::Key) -> Option<&R>;
 
     // Remove a stored instance from the internal registry.
     fn remove(&mut self, key: &D::Key);
@@ -55,17 +59,8 @@ where D: ResourceDescriptor
     /// Check if a resource exists in the handler (in any state)
     fn contains(&self, key: &D::Key) -> bool;
 
-    /// Check if a requested resource has finished completion and is stored in the map.
-    fn is_ready(&self, key: &D::Key) -> bool;
-
-    /// Check if requested resource is still pending completion
-    fn is_pending(&self, key: &D::Key) -> bool;
-
-    /// Check if a requested resource failed completion.
-    fn is_failed(&self, key: &D::Key) -> bool;
-
-    /// Get the error message of a failed resource, if applicable.
-    fn get_err(&self, key: &D::Key) -> Option<&str>;
+    /// Get the status of resource (Pending, Ready, Failed). Returns None if the resource does not exist.
+    fn status_of(&self, key: &D::Key) -> Option<&ResourceStatus<R>>;
 }
 
 pub trait CommandBuffer<T> {

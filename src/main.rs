@@ -1,6 +1,6 @@
 mod graphics;
 use graphics::wpgu_context::WgpuContext;
-use graphics::transient::Renderer;
+use graphics::renderer::Renderer;
 use graphics::traits::AppState;
 
 use std::sync::Arc;
@@ -17,7 +17,7 @@ use winit::{
     window::{ Window, WindowId },
 };
 
-use crate::graphics::transient::StateInit;
+use crate::graphics::init_state::StateInit;
 
 pub struct App<T> {
     app_state: T,
@@ -60,7 +60,7 @@ impl<T: AppState> ApplicationHandler for App<T> {
 
         // println!("FPS: {}", 1.0/dt);
 
-        self.app_state.process_input();
+        self.app_state.process_input(dt);
         self.app_state.update(dt);
 
         wgpu_ctx.prepare_next_frame();

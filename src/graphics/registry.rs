@@ -142,6 +142,10 @@ where
     pub fn request_wait<W>(&mut self, key: &K, worker: W) -> Result<(), String>
     where W: Future<Output = Result<R, String>> + Send + 'static
     {
+        if self.storage_map.contains_key(key) {
+            return Ok(());
+        }
+
         match pollster::block_on(worker) {
             Ok(res) => {
                 self.store(key, res);
@@ -224,11 +228,11 @@ where
 
     /// Get the status of a resource. None is returned if the resource does not exist.
     pub fn status_of(&self, key: &K) -> Option<&ResourceStatus<R>> {
-        return Some(self.storage_map.get(key)?);
+        self.storage_map.get(key)
     }
 
     /// Get a completed resource. Returns None if the resource does not exist/is unavailable.
     pub fn get(&self, key: &K) -> Option<&R> {
-        return self.storage_map.get(key)?.value();
+        (self.storage_map.get(key)?).value()
     }
 }

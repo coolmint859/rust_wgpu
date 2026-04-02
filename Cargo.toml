@@ -10,7 +10,7 @@ env_logger = "0.10"
 log = "0.4"
 wgpu = "28.0"
 pollster = "0.3"
-glam = "0.32.1"
+glam = { version = "0.32.1", features = [ "bytemuck" ]}
 image = "0.23"
 rand = "0.8.0"
 bytemuck = { version = "1.24", features = [ "derive" ] }
