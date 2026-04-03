@@ -23,12 +23,18 @@ pub struct App<T> {
     app_state: T,
     wgpu_ctx: Option<WgpuContext>,
     prev_time: time::Instant,
+    aspect_ratio: f32,
 }
 
 impl<T: AppState> App<T> {
     pub fn new(app_state: T) -> Self {
         let start_time = time::Instant::now();
-        Self { wgpu_ctx: None , prev_time: start_time, app_state }
+        Self { 
+            wgpu_ctx: None, 
+            prev_time: start_time, 
+            app_state,
+            aspect_ratio: 1.0,
+        }
     }
 }
 
@@ -76,10 +82,12 @@ impl<T: AppState> ApplicationHandler for App<T> {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(size) => {
                 wgpu_ctx.resize(size.width, size.height);
+                self.aspect_ratio = size.width as f32 / size.height as f32;
+                // wgpu_ctx.prepare_next_frame();
             },
             WindowEvent::RedrawRequested => {
                 let mut renderer = Renderer::new();
-                self.app_state.render(&mut renderer);
+                self.app_state.render(&mut renderer, self.aspect_ratio);
                 wgpu_ctx.render(renderer).unwrap();
             }
             WindowEvent::KeyboardInput {

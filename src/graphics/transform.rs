@@ -37,50 +37,45 @@ impl Transform {
         Self { position, rotation, dimensions, world_mat, is_dirty }
     }
 
-    /// Get the world matrix as a vector of bytes.
-    pub fn as_byte_vec(&self) -> Vec<u8> {
-        self.as_bytes().to_vec()
+    /// get a copy of this transform's world matrix
+    pub fn world_matrix(&self) -> glam::Mat4 {
+        self.is_dirty.set(false);
+        self.world_mat.clone()
     }
 
-    /// Get the world matrix as an array of bytes
-    pub fn as_bytes(&self) -> &[u8] {
-        self.is_dirty.set(false);
-        bytemuck::bytes_of(&self.world_mat)
+    /// move relative to local origin
+    pub fn translate(&mut self, amount: Vec3) {
+        self.position += amount;
+        self.is_dirty.set(true);
     }
 
     /// move relative to world origin
-    pub fn translate(&mut self, amount: Vec3) {
-        self.position += amount;
-        self.update_world_mat();
-    }
-
-    /// move relative to host entity's current orientation
-    pub fn move_local(&mut self, amount: Vec3) {
+    pub fn move_world(&mut self, amount: Vec3) {
         self.position += self.rotation * amount;
-        self.update_world_mat();
+        self.is_dirty.set(true);
     }
 
     /// rotate from current orientation
     pub fn rotate(&mut self, rotation:Quat) {
         self.rotation *= rotation;
-        self.update_world_mat();
+        self.is_dirty.set(true);
     }
 
     /// rotate from current orientation, using Euler angles
     pub fn rotate_euler(&mut self, pitch: f32, yaw: f32, roll: f32) {
         self.rotation *= Quat::from_euler(EulerRot::YXZ, yaw, pitch, roll);
-        self.update_world_mat();
+        self.is_dirty.set(true);
     }
 
     /// reorient this transform to 'point' to a target
     pub fn look_at(&mut self, target:Vec3, up:Vec3) {
         let look_dir = self.position - target;
         self.rotation = Quat::from_mat4(&Mat4::look_at_rh(self.position, look_dir, up));
-        self.update_world_mat();
+        self.is_dirty.set(true);
     }
 
     /// apply this transform to a vector
-    pub fn apply_to(&mut self, vector:Vec3) -> Vec3 {
+    pub fn apply_to(&self, vector:Vec3) -> Vec3 {
         let vec4 = Vec4::new(vector.x, vector.y, vector.z, 1.0);
         let transformed = self.world_mat.mul_vec4(vec4);
         transformed.xyz()
@@ -91,8 +86,10 @@ impl Transform {
         return self.is_dirty.get()
     }
 
-    fn update_world_mat(&mut self) {
-        self.world_mat = Mat4::from_scale_rotation_translation(self.dimensions, self.rotation, self.position);
-        self.is_dirty.set(true);
+    pub fn update_world_mat(&mut self) {
+        if self.is_dirty() {
+            self.world_mat = Mat4::from_scale_rotation_translation(self.dimensions, self.rotation, self.position);
+            self.is_dirty.set(false);
+        }
     }
 }

@@ -49,7 +49,6 @@ impl ResourceDescriptor for MeshData {
 }
 
 pub struct Mesh<M: Material> {
-    pub name: String,
     pub transform: Transform,
     pub data: Arc<MeshData>,
     pub material: Arc<M>,
@@ -58,13 +57,11 @@ pub struct Mesh<M: Material> {
 
 impl<M: Material> Mesh<M> {
     pub fn new(
-        name: &str, 
         data: Arc<MeshData>, 
         material: Arc<M>, 
         pipeline: RenderPipelineConfig
     ) -> Self {
         Self {
-           name: name.to_string(),
            transform: Transform::default(),
            data: Arc::clone(&data),
            material: Arc::clone(&material),
@@ -72,19 +69,15 @@ impl<M: Material> Mesh<M> {
         }
     }
 
-    /// Create a shallow copy of this mesh (does not duplicate vertex/index data)
+    /// Create a shallow copy of this mesh (does not duplicate vertex/index or material data)
     pub fn duplicate(&self) -> Mesh<M> {
-        Mesh {
-            name: self.name.clone(),
-            data: Arc::clone(&self.data), // reference to internal data
-            material: Arc::clone(&self.material),
-            transform: self.transform.clone(),
-            pipeline: self.pipeline.clone()
-        }
-    }
-
-    /// Get the key to this mesh
-    pub fn get_key(&self) -> String {
-        self.name.clone()
+        let mut mesh_dup = Mesh::new(
+            Arc::clone(&self.data),
+            Arc::clone(&self.material),
+            self.pipeline.clone()
+        );
+        mesh_dup.transform = self.transform.clone();
+        
+        mesh_dup
     }
 }

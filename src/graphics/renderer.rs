@@ -1,9 +1,7 @@
 use std::sync::Arc;
 
 use crate::graphics::{
-    material::{Material, UniformEntry}, 
-    mesh::{Mesh, MeshData}, 
-    presets::RenderPipelineConfig, traits::ResourceDescriptor,
+    camera::Camera, material::{Material, UniformEntry}, mesh::{Mesh, MeshData}, presets::RenderPipelineConfig, traits::ResourceDescriptor
 };
 
 #[derive(Clone, Debug)]
@@ -16,7 +14,7 @@ pub struct DrawCommand {
 
 #[derive(Clone, Debug)]
 pub struct UpdateCommand {
-    pub material_id: String,
+    pub uniform_id: String,
     pub entries: Vec<UniformEntry>
 }
 
@@ -28,6 +26,7 @@ pub struct Renderer {
     draw_cmds: Vec<DrawCommand>,
     update_cmds: Vec<UpdateCommand>,
     clear_color: wgpu::Color,
+    camera_key: String,
 }
 
 impl Renderer {
@@ -35,8 +34,28 @@ impl Renderer {
         Self { 
             draw_cmds: Vec::new(),
             update_cmds: Vec::new(),
-            clear_color: wgpu::Color::BLACK
+            clear_color: wgpu::Color::BLACK,
+            camera_key: "".to_string(),
         }
+    }
+
+    /// set the camera for the current frame
+    pub fn set_camera<C: Camera>(&mut self, camera: &mut C) {
+        if camera.is_dirty() {
+            camera.update_view_proj_mat();
+
+            self.update_cmds.push(UpdateCommand { 
+                uniform_id: camera.get_layout_id(), 
+                entries: camera.get_data(),
+            })
+        }
+
+        self.camera_key = camera.get_layout_id();
+    }
+
+    /// Get the currently set camera's key
+    pub fn get_camera_key(&self) -> String {
+        self.camera_key.clone()
     }
 
     // Set the background color for the frame
@@ -50,27 +69,23 @@ impl Renderer {
     }
 
     /// Draw an object to the current texture
-    pub fn draw<M: Material>(&mut self, mesh: &Mesh<M>) {
-        let mut uniform_entries = Vec::new();
-        if mesh.transform.is_dirty() {
-            uniform_entries.push(UniformEntry {
-                bind_slot: 0,
-                data: mesh.transform.as_byte_vec()
-            })
-        }
+    pub fn draw<M: Material>(&mut self, mesh: &mut Mesh<M>) {
+        let transform_dirty = mesh.transform.is_dirty();
+        let material_dirty = mesh.material.is_dirty();
 
-        if let Some(uniform_data) = mesh.material.diff() {
-            uniform_entries.extend(uniform_data);
-        }
+        // only create an update command if the material or transform have changed
+        if transform_dirty || material_dirty {
+            mesh.transform.update_world_mat(); // make sure world matrix is up to date
 
-        // only create update command if transform or material data have changed
-        if uniform_entries.len() > 0 {
+            let model_mat = mesh.transform.world_matrix();
+            let uniform_entries = mesh.material.get_data(model_mat);
+
             self.update_cmds.push(
-                UpdateCommand {
-                    material_id: mesh.material.get_key(),
+                UpdateCommand { 
+                    uniform_id: mesh.material.get_key(), 
                     entries: uniform_entries
                 }
-            );
+            )
         }
 
         self.draw_cmds.push(

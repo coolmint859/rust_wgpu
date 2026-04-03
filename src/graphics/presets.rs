@@ -5,7 +5,7 @@ use crate::graphics::{
     layout_handler::{BindingType, LayoutConfig, LayoutEntry}, 
     mesh::MeshData, 
     registry::ResourceRegistry,
-    vertex::Vertex, wpgu_context::MATERIAL_GROUP
+    vertex::Vertex, wpgu_context::{CAMERA_GROUP, MATERIAL_GROUP}
 };
 
 /// lightwight configuration struct for WGPU rendering pipelines
@@ -41,7 +41,10 @@ impl Pipeline {
                 shader_path: "src/graphics/shaders/shader.wgsl".to_string(),
                 vert_main: "vs_main".to_string(),
                 frag_main: "fs_main".to_string(),
-                layout_ids: vec!["colored-sprite".to_string()],
+                layout_ids: vec![
+                    "camera-2d".to_string(),
+                    "colored-sprite".to_string()
+                ],
                 layouts: Vec::new()
             },
         }
@@ -49,29 +52,37 @@ impl Pipeline {
 }
 
 pub enum BindingLayout {
-    ColoredSprite
+    ColoredSprite,
+    Camera2D,
 }
 
 impl BindingLayout {
     pub fn get(self) -> Arc<LayoutConfig> {
         return match self {
             BindingLayout::ColoredSprite => {
-                let model_mat = LayoutEntry {
+                let material = LayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: BindingType::Uniform
-                };
-
-                let color = LayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                     ty: BindingType::Uniform
                 };
 
                 Arc::new(LayoutConfig { 
                     key: "colored-sprite".to_string(),
                     bind_group: MATERIAL_GROUP, 
-                    entries: vec![model_mat, color]
+                    entries: vec![material]
+                })
+            },
+            BindingLayout::Camera2D => {
+                let camera = LayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: BindingType::Uniform
+                };
+
+                Arc::new(LayoutConfig { 
+                    key: "camera-2d".to_string(),
+                    bind_group: CAMERA_GROUP, 
+                    entries: vec![camera]
                 })
             }
         }

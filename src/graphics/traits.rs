@@ -18,7 +18,7 @@ pub trait AppState {
     fn update(&mut self, dt: f32);
 
     /// Called at the end of each frame before drawing commands are sent to the GPU.
-    fn render(&mut self, renderer: &mut Renderer);
+    fn render(&mut self, renderer: &mut Renderer, aspect: f32);
 }
 
 /// Represents a storable resource in a type that implements the Handler trait
@@ -61,8 +61,4 @@ where D: ResourceDescriptor
 
     /// Get the status of resource (Pending, Ready, Failed). Returns None if the resource does not exist.
     fn status_of(&self, key: &D::Key) -> Option<&ResourceStatus<R>>;
-}
-
-pub trait CommandBuffer<T> {
-    fn get_commands(&self) -> Vec<T>;
 }

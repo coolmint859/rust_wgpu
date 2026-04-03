@@ -16,8 +16,9 @@ use crate::graphics::{
     u_buffer_handler::UniformBufferHandler
 };
 
+pub const CAMERA_GROUP: u32 = 0;
 /// group binding number for material uniforms
-pub const MATERIAL_GROUP: u32 = 0;
+pub const MATERIAL_GROUP: u32 = 1;
 
 /// Represents the entire WebGPU rendering context
 pub struct WgpuContext {
@@ -34,6 +35,7 @@ impl WgpuContext {
 
         let mut layout_handler = LayoutHandler::new(Arc::clone(&core.device));
         layout_handler.request_wait(BindingLayout::ColoredSprite.get());
+        layout_handler.request_wait(BindingLayout::Camera2D.get());
 
         let mesh_handler = MeshBufferHandler::new(Arc::clone(&core.device));
         let uniform_handler = UniformBufferHandler::new(Arc::clone(&core.device));
@@ -114,24 +116,31 @@ impl WgpuContext {
 
         // UPDATE PASS: Update uniform buffers
         for cmd in &renderer.update_cmds() {
-            if let Some(uniforms) = self.uniform_handler.get(&cmd.material_id) {
+            if let Some(uniforms) = self.uniform_handler.get(&cmd.uniform_id) {
                 for entry in &cmd.entries {
                     let buffer = uniforms.buffers.get(&entry.bind_slot).unwrap();
 
                     self.core.queue.write_buffer(buffer, 0, &entry.data);
                 }
-            } else if !self.uniform_handler.contains(&cmd.material_id.clone()) {
+            } else if !self.uniform_handler.contains(&cmd.uniform_id) {
                 self.uniform_handler.request_new(
                     Arc::new(UniformGroup {
-                        key: cmd.material_id.clone(),
+                        key: cmd.uniform_id.clone(),
                         contents: cmd.entries.to_vec(),
-                        bind_layout: Arc::clone(self.layout_handler.get(&cmd.material_id).unwrap())
+                        bind_layout: Arc::clone(self.layout_handler.get(&cmd.uniform_id).unwrap())
                     })
                 );
             }
         }
 
         // DRAW PASS: render meshes to screen
+
+        // First check for camera existance
+        let cam_data = match self.uniform_handler.get(&renderer.get_camera_key()) {
+            Some(data) => data,
+            None => return Ok(()) // if the camera buffer is not ready, we can't draw anything
+        };
+
         let output = self.core.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -159,6 +168,9 @@ impl WgpuContext {
                     multiview_mask: None,
                 }
             );
+
+            // at this point we know the camera buffer exists, so we can safely bind it.
+            render_pass.set_bind_group(CAMERA_GROUP, &cam_data.bind_group, &[]);
 
             let mut missing_meshes: Vec<u32> = Vec::new();
             let mut missing_pipelines: Vec<String> = Vec::new();

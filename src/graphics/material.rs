@@ -29,14 +29,21 @@ impl ResourceDescriptor for UniformGroup {
 
 /// Represents a material, which defines how a mesh should look when rendered
 pub trait Material {
-    /// Check if any material data has changed, and if so, return them as uniform entries.
-    fn diff(&self) -> Option<Vec<UniformEntry>>;
-
     /// Get the key to this material
     fn get_key(&self) -> String;
 
-    /// Get the material data as a list of uniform entries
-    fn entries(&self) -> Vec<UniformEntry>;
+    /// Get the material data as a list of uniform entries - updates the internal dirty flag to false
+    fn get_data(&self, model_mat: glam::Mat4) -> Vec<UniformEntry>;
+
+    /// Check if this material has changed since the last uniform request
+    fn is_dirty(&self) -> bool;
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ColoredSpriteUniform {
+    pub model_matrix: [f32; 16],
+    pub color: [f32; 4],
 }
 
 /// A 2D sprite that can be colored
@@ -58,20 +65,24 @@ impl ColoredSprite {
 }
 
 impl Material for ColoredSprite {
-    fn diff(&self) -> Option<Vec<UniformEntry>> {
-        if self.is_dirty.get() {
-            self.is_dirty.set(false);
-            Some(self.entries())
-        } else {
-            None
-        }
-    }
-
     fn get_key(&self) -> String {
         self.key.clone()
     }
 
-    fn entries(&self) -> Vec<UniformEntry> {
-        vec![UniformEntry { bind_slot: 1, data: bytemuck::cast_slice(&self.color).to_vec() }]
+    fn get_data(&self, model_mat: glam::Mat4) -> Vec<UniformEntry> {
+        self.is_dirty.set(false);
+        let uniform_data = ColoredSpriteUniform {
+            model_matrix: model_mat.to_cols_array(),
+            color: self.color,
+        };
+
+        vec![UniformEntry { 
+            bind_slot: 0, 
+            data: bytemuck::bytes_of(&uniform_data).to_vec() 
+        }]
+    }
+
+    fn is_dirty(&self) -> bool {
+        self.is_dirty.get()
     }
 }
