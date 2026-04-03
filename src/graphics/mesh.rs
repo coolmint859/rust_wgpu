@@ -48,23 +48,23 @@ impl ResourceDescriptor for MeshData {
     fn get_key(&self) -> &Self::Key { &self.id }
 }
 
-pub struct Mesh<M: Material> {
+pub struct Mesh<M: Material + Clone> {
     pub transform: Transform,
     pub data: Arc<MeshData>,
-    pub material: Arc<M>,
+    pub material: M,
     pub pipeline: RenderPipelineConfig,
 }
 
-impl<M: Material> Mesh<M> {
+impl<M: Material + Clone> Mesh<M> {
     pub fn new(
         data: Arc<MeshData>, 
-        material: Arc<M>, 
+        material: M, 
         pipeline: RenderPipelineConfig
     ) -> Self {
         Self {
            transform: Transform::default(),
            data: Arc::clone(&data),
-           material: Arc::clone(&material),
+           material,
            pipeline,
         }
     }
@@ -73,7 +73,7 @@ impl<M: Material> Mesh<M> {
     pub fn duplicate(&self) -> Mesh<M> {
         let mut mesh_dup = Mesh::new(
             Arc::clone(&self.data),
-            Arc::clone(&self.material),
+            self.material.clone(),
             self.pipeline.clone()
         );
         mesh_dup.transform = self.transform.clone();

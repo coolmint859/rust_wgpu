@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::graphics::{
-    camera::Camera, material::{Material, UniformEntry}, mesh::{Mesh, MeshData}, presets::RenderPipelineConfig, traits::ResourceDescriptor
+    camera::Camera, material::{Material, UniformEntry}, mesh::{Mesh, MeshData}, presets::RenderPipelineConfig, traits::ResourceDescriptor, u_buffer_handler::UniformBufferHandler
 };
 
 #[derive(Clone, Debug)]
@@ -18,6 +18,15 @@ pub struct UpdateCommand {
     pub entries: Vec<UniformEntry>
 }
 
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+/// Uniforms that are global to the entire scene
+pub struct GlobalUniforms {
+    view_proj: [f32; 16],
+    cam_pos: [f32; 3],
+    elapsed_time: f32,
+}
+
 /// Constructs render commands from mesh and material data.
 /// 
 /// This acts as a translator for high level constructs into low level data 
@@ -27,28 +36,37 @@ pub struct Renderer {
     update_cmds: Vec<UpdateCommand>,
     clear_color: wgpu::Color,
     camera_key: String,
+    elapsed_time: f32,
 }
 
 impl Renderer {
-    pub fn new() -> Self {
+    pub fn new(elapsed_time: f32) -> Self {
         Self { 
             draw_cmds: Vec::new(),
             update_cmds: Vec::new(),
             clear_color: wgpu::Color::BLACK,
             camera_key: "".to_string(),
+            elapsed_time
         }
     }
 
     /// set the camera for the current frame
     pub fn set_camera<C: Camera>(&mut self, camera: &mut C) {
-        if camera.is_dirty() {
-            camera.update_view_proj_mat();
+        camera.update_view_proj_mat();
 
-            self.update_cmds.push(UpdateCommand { 
-                uniform_id: camera.get_layout_id(), 
-                entries: camera.get_data(),
-            })
-        }
+        let globals = GlobalUniforms {
+            view_proj: camera.get_view_proj_mat().to_cols_array(),
+            cam_pos: camera.get_position().to_array(),
+            elapsed_time: self.elapsed_time,
+        };
+
+        self.update_cmds.push(UpdateCommand { 
+            uniform_id: camera.get_layout_id(), 
+            entries: vec![UniformEntry {
+                bind_slot: 0,
+                data: UniformBufferHandler::pad_uniform(globals) 
+            }],
+        });
 
         self.camera_key = camera.get_layout_id();
     }
@@ -69,7 +87,7 @@ impl Renderer {
     }
 
     /// Draw an object to the current texture
-    pub fn draw<M: Material>(&mut self, mesh: &mut Mesh<M>) {
+    pub fn draw<M: Material + Clone>(&mut self, mesh: &mut Mesh<M>) {
         let transform_dirty = mesh.transform.is_dirty();
         let material_dirty = mesh.material.is_dirty();
 

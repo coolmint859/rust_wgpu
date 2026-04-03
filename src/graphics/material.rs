@@ -1,7 +1,7 @@
 use std::{cell::Cell, sync::Arc};
 
 use crate::graphics::{
-    traits::ResourceDescriptor
+    traits::ResourceDescriptor, u_buffer_handler::UniformBufferHandler
 };
 
 /// Represents a single uniform on the gpu
@@ -55,12 +55,18 @@ pub struct ColoredSprite {
 }
 
 impl ColoredSprite {
-    pub fn new(color: [f32; 4]) -> Arc<Self> {
-        Arc::new(Self {
+    pub fn new(color: [f32; 4]) -> Self {
+        Self {
             key: "colored-sprite".to_string(),
             color: color,
             is_dirty: Cell::new(true),
-        })
+        }
+    }
+
+    /// Set the color of this material
+    pub fn set_color(&mut self, color: [f32; 4]) {
+        self.color = color;
+        self.is_dirty.set(true);
     }
 }
 
@@ -78,7 +84,7 @@ impl Material for ColoredSprite {
 
         vec![UniformEntry { 
             bind_slot: 0, 
-            data: bytemuck::bytes_of(&uniform_data).to_vec() 
+            data: UniformBufferHandler::pad_uniform(uniform_data)
         }]
     }
 

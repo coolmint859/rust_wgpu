@@ -64,6 +64,21 @@ impl UniformBufferHandler {
             buffers: ResourceRegistry::new(),
         }
     }
+
+    /// Takes a POD struct and converts it into a 16-byte aligned byte vector.
+    pub fn pad_uniform<T: bytemuck::Pod>(uniform: T) -> Vec<u8> {
+        let raw_bytes = bytemuck::bytes_of(&uniform);
+        let mut padded_bytes = raw_bytes.to_vec();
+        
+        // Calculate how many bytes we need to reach the next multiple of 16
+        let padding_needed = (16 - (raw_bytes.len() % 16)) % 16;
+        
+        if padding_needed > 0 {
+            padded_bytes.extend(std::iter::repeat(0).take(padding_needed));
+        }
+        
+        padded_bytes
+    }
 }
 
 impl Handler<UniformGroup, UniformBuffer> for UniformBufferHandler {

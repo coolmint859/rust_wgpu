@@ -75,7 +75,7 @@ impl BindingLayout {
             BindingLayout::Camera2D => {
                 let camera = LayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                     ty: BindingType::Uniform
                 };
 
@@ -98,6 +98,7 @@ impl Shape2D {
         Self { shape_data: ResourceRegistry::new() }
     }
 
+    /// Generate mesh data for a triangle
     pub fn triangle(&mut self) -> Arc<MeshData> {
         let key = "triangle".to_string();
 
@@ -113,6 +114,7 @@ impl Shape2D {
         }
     }
 
+    /// Generate mesh data for a square.
     pub fn square(&mut self) -> Arc<MeshData> {
         let key = "square".to_string();
         
@@ -128,6 +130,7 @@ impl Shape2D {
         }
     }
 
+    // /// Generate mesh data for a polygon
     // pub fn polygon(&mut self, num_sides: u32)  -> Arc<MeshData> {
     //     let key = format!("polygon{}", num_sides);
         
@@ -144,24 +147,26 @@ impl Shape2D {
     // }
 }
 
+/// Get raw triangle data
 pub fn gen_triangle() -> MeshData {
     MeshData::new(
         vec![
-            Vertex { position: [0.0, 0.5, 0.0], color: [1.0, 0.0, 0.0] },
-            Vertex { position: [-0.5, -0.5, 0.0], color: [0.0, 1.0, 0.0] },
-            Vertex { position: [0.5, -0.5, 0.0], color: [0.0, 0.0, 1.0] },
+            Vertex { position: [0.0, 0.5, 0.0] },
+            Vertex { position: [-0.5, -0.5, 0.0] },
+            Vertex { position: [0.5, -0.5, 0.0] },
         ],
         vec![0, 1, 2]
     )
 }
 
+/// Get raw square data
 pub fn gen_square() -> MeshData  {
     MeshData::new(
         vec![
-            Vertex { position: [ 0.5,  0.5, 0.0], color: [1.0, 0.0, 0.0] },
-            Vertex { position: [-0.5,  0.5, 0.0], color: [0.0, 1.0, 0.5] },
-            Vertex { position: [-0.5, -0.5, 0.0], color: [0.0, 0.0, 1.0] },
-            Vertex { position: [ 0.5, -0.5, 0.0], color: [0.5, 0.0, 0.5] },
+            Vertex { position: [ 0.5,  0.5, 0.0] },
+            Vertex { position: [-0.5,  0.5, 0.0] },
+            Vertex { position: [-0.5, -0.5, 0.0] },
+            Vertex { position: [ 0.5, -0.5, 0.0] },
         ],
         vec![
             0, 1, 2,
@@ -170,6 +175,7 @@ pub fn gen_square() -> MeshData  {
     )
 }
 
+// /// Get raw polygon data
 // pub fn gen_polygon() -> MeshData {
 
 // }

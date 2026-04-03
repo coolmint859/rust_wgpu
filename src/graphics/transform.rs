@@ -56,7 +56,7 @@ impl Transform {
     }
 
     /// rotate from current orientation
-    pub fn rotate(&mut self, rotation:Quat) {
+    pub fn rotate(&mut self, rotation: Quat) {
         self.rotation *= rotation;
         self.is_dirty.set(true);
     }
@@ -64,6 +64,17 @@ impl Transform {
     /// rotate from current orientation, using Euler angles
     pub fn rotate_euler(&mut self, pitch: f32, yaw: f32, roll: f32) {
         self.rotation *= Quat::from_euler(EulerRot::YXZ, yaw, pitch, roll);
+        self.is_dirty.set(true);
+    }
+
+    /// Set the absolute rotation of the transform
+    pub fn set_rotation(&mut self, rotation: Quat) {
+        self.rotation = rotation;
+        self.is_dirty.set(true);
+    }
+
+    pub fn set_rotation_euler(&mut self, pitch: f32, yaw: f32, roll: f32) {
+        self.rotation = Quat::from_euler(EulerRot::YXZ, yaw, pitch, roll);
         self.is_dirty.set(true);
     }
 
@@ -86,6 +97,7 @@ impl Transform {
         return self.is_dirty.get()
     }
 
+    /// Update the world matrix from the currently set position, rotation, and scale
     pub fn update_world_mat(&mut self) {
         if self.is_dirty() {
             self.world_mat = Mat4::from_scale_rotation_translation(self.dimensions, self.rotation, self.position);

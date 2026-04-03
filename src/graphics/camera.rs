@@ -2,31 +2,33 @@
 use std::cell::Cell;
 use glam::{Mat4, Quat, Vec2, Vec3};
 
-use crate::graphics::{material::UniformEntry, transform::Transform};
+use crate::graphics::transform::Transform;
 
 pub trait Camera {
+    /// Get the unique identifier for this camera
     fn get_key(&self) -> String;
 
+    /// Get the id to the bind group layout to which this camera represents
     fn get_layout_id(&self) -> String;
 
+    /// Get the view-projection matrix
     fn get_view_proj_mat(&self) -> glam::Mat4;
 
+    /// get the position of the camera in 3D space
+    fn get_position(&self) -> Vec3;
+
+    /// Check if the camera data has changed
     fn is_dirty(&self) -> bool;
 
-    fn get_data(&self) -> Vec<UniformEntry>;
-
+    /// set the aspect ratio for the camera's projection (should be called when the target dimensions change)
     fn set_aspect_ratio(&mut self, new_aspect: f32);
 
+    /// Trigger the camera to update it's view-projection matrix
     fn update_view_proj_mat(&mut self);
 }
 
 
-#[repr(C)]
-#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct Camera2DUniform {
-    view_proj: [f32; 16],
-}
-
+/// Represents a 2D camera, using orthographic projection
 pub struct Camera2D {
     key: String,
     layout_id: String,
@@ -47,23 +49,16 @@ impl Camera for Camera2D {
         self.layout_id.clone()
     }
 
+    fn get_position(&self) -> Vec3 {
+        self.transform.position
+    }
+
     fn get_view_proj_mat(&self) -> glam::Mat4 {
         self.view_proj_mat.clone()
     }
 
     fn is_dirty(&self) -> bool {
-        self.is_dirty.get()
-    }
-
-    fn get_data(&self) -> Vec<UniformEntry> {
-        let camera_uniform = Camera2DUniform {
-            view_proj: self.get_view_proj_mat().to_cols_array(),
-        };
-
-        vec![UniformEntry { 
-            bind_slot: 0, 
-            data: bytemuck::bytes_of(&camera_uniform).to_vec() 
-        }]
+        self.is_dirty.get() || self.transform.is_dirty()
     }
 
     fn set_aspect_ratio(&mut self, new_aspect: f32) {
@@ -77,6 +72,7 @@ impl Camera for Camera2D {
     /// update the camera's view-projection matrix
     fn update_view_proj_mat(&mut self) {
         if self.is_dirty() {
+            self.transform.update_world_mat();
             let view_mat = self.transform.world_matrix().inverse();
 
             let half_width = self.aspect / self.zoom;
@@ -137,16 +133,24 @@ impl Camera2D {
         self.is_dirty.set(true);
     }
 
-    /// Tilt the camera to the left or right relative to local x-axis
-    pub fn tilt_local(&mut self, roll: f32) {
-        let curr_orient = self.transform.rotation.to_euler(glam::EulerRot::YXZ);
-        self.transform.rotate_euler(0.0, 0.0, roll + curr_orient.1);
+    /// Tilt the camera to the left or right relative to local z-axis
+    pub fn tilt_local(&mut self, tilt: f32) {
+        let rotation = self.transform.rotation * glam::Quat::from_rotation_z(tilt);
+        self.transform.set_rotation(rotation);
         self.is_dirty.set(true);
     }
 
-    /// Tilt the camera to the left or right relative to world x-axis
-    pub fn tilt_world(&mut self, roll: f32) {
-        self.transform.rotate_euler(0.0, 0.0, roll);
+    /// Tilt the camera to the left or right relative to world z-axis
+    pub fn tilt_world(&mut self, tilt: f32) {
+        let rotation = glam::Quat::from_rotation_z(tilt) * self.transform.rotation;
+        self.transform.set_rotation(rotation);
+        self.is_dirty.set(true);
+    }
+
+    /// Set the absolute tilt of the camera 
+    pub fn set_tilt(&mut self, tilt: f32) {
+        let rotation = glam::Quat::from_rotation_z(tilt);
+        self.transform.set_rotation(rotation);
         self.is_dirty.set(true);
     }
 

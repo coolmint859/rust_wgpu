@@ -10,11 +10,7 @@ mod game;
 use game::game::Game;
 
 use winit::{
-    application::ApplicationHandler,
-    event::*,
-    event_loop::{ ActiveEventLoop, EventLoop, ControlFlow },
-    keyboard::{ KeyCode, PhysicalKey },
-    window::{ Window, WindowId },
+    application::ApplicationHandler, dpi::{PhysicalSize, Size}, event::*, event_loop::{ ActiveEventLoop, ControlFlow, EventLoop }, keyboard::{ KeyCode, PhysicalKey }, window::{ Window, WindowAttributes, WindowId }
 };
 
 use crate::graphics::init_state::StateInit;
@@ -23,17 +19,21 @@ pub struct App<T> {
     app_state: T,
     wgpu_ctx: Option<WgpuContext>,
     prev_time: time::Instant,
+    elapsed_time: f32,
     aspect_ratio: f32,
+    attributes: WindowAttributes,
 }
 
 impl<T: AppState> App<T> {
-    pub fn new(app_state: T) -> Self {
+    pub fn new(app_state: T, attributes: WindowAttributes) -> Self {
         let start_time = time::Instant::now();
         Self { 
             wgpu_ctx: None, 
-            prev_time: start_time, 
+            prev_time: start_time,
+            elapsed_time: 0.0, 
             app_state,
             aspect_ratio: 1.0,
+            attributes,
         }
     }
 }
@@ -41,8 +41,7 @@ impl<T: AppState> App<T> {
 impl<T: AppState> ApplicationHandler for App<T> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.wgpu_ctx.is_none() {
-            let window_attributes = Window::default_attributes().with_title("WGPU");
-            let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
+            let window = Arc::new(event_loop.create_window(self.attributes.clone()).unwrap());
 
             let mut wgpu_ctx = pollster::block_on(WgpuContext::new(window.clone()));
 
@@ -64,10 +63,12 @@ impl<T: AppState> ApplicationHandler for App<T> {
         let dt = (curr_time - self.prev_time).as_secs_f32();
         self.prev_time = curr_time;
 
-        // println!("FPS: {}", 1.0/dt);
+        self.elapsed_time += dt;
 
-        self.app_state.process_input(dt);
-        self.app_state.update(dt);
+        // println!("ET: {}", self.elapsed_time);
+
+        self.app_state.process_input(dt, self.elapsed_time);
+        self.app_state.update(dt, self.elapsed_time);
 
         wgpu_ctx.prepare_next_frame();
     }
@@ -83,10 +84,9 @@ impl<T: AppState> ApplicationHandler for App<T> {
             WindowEvent::Resized(size) => {
                 wgpu_ctx.resize(size.width, size.height);
                 self.aspect_ratio = size.width as f32 / size.height as f32;
-                // wgpu_ctx.prepare_next_frame();
             },
             WindowEvent::RedrawRequested => {
-                let mut renderer = Renderer::new();
+                let mut renderer = Renderer::new(self.elapsed_time);
                 self.app_state.render(&mut renderer, self.aspect_ratio);
                 wgpu_ctx.render(renderer).unwrap();
             }
@@ -113,7 +113,13 @@ async fn main() {
     env_logger::init();
 
     let game = Game::new();
-    let mut app = App::new(game);
+    let attributes = Window::default_attributes()
+        .with_inner_size(Size::Physical(
+            PhysicalSize { width: 1920, height: 1080 }
+        ))
+        .with_title("WGPU Renderer");
+
+    let mut app = App::new(game, attributes);
 
     let event_loop = EventLoop::new().unwrap();
     event_loop.set_control_flow(ControlFlow::Poll);
