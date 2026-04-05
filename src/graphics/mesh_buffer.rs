@@ -1,9 +1,12 @@
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
-use super::mesh::MeshData;
-use super::traits::{ Handler, ResourceDescriptor };
-use super::registry::{ ResourceStatus, ResourceRegistry};
+use super::{
+    mesh::MeshData,
+    traits::{ Handler, ResourceDescriptor },
+    registry::ResourceRegistry,
+    gpu_resource::ResourceStatus
+};
 
 /// represents a mesh as it lives on the gpu during rendering, most importantly it's buffers
 pub struct MeshBuffer {

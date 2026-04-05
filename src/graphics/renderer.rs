@@ -1,7 +1,12 @@
 use std::sync::Arc;
 
 use crate::graphics::{
-    camera::Camera, material::{Material, UniformEntry}, mesh::{Mesh, MeshData}, presets::RenderPipelineConfig, traits::ResourceDescriptor, u_buffer_handler::UniformBufferHandler
+    camera::Camera, 
+    material::{Material, UniformEntry}, 
+    mesh::{Mesh, MeshData}, 
+    render_pipeline::RenderPipelineBuilder, 
+    traits::ResourceDescriptor,
+    uniform_buffer::UniformBufferHandler
 };
 
 #[derive(Clone, Debug)]
@@ -9,7 +14,7 @@ pub struct DrawCommand {
     pub mesh_id: u32,
     pub material_id: String, 
     pub data: Arc<MeshData>, 
-    pub rpip_config: RenderPipelineConfig
+    pub rpip_builder: RenderPipelineBuilder
 }
 
 #[derive(Clone, Debug)]
@@ -111,7 +116,7 @@ impl Renderer {
                 mesh_id: mesh.data.get_key().clone(),
                 material_id: mesh.material.get_key(),
                 data: Arc::clone(&mesh.data), 
-                rpip_config: mesh.pipeline.clone()
+                rpip_builder: mesh.pipeline.clone()
             }
         );
     }

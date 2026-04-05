@@ -2,29 +2,13 @@
 use std::sync::Arc;
 
 use crate::graphics::{
-    layout_handler::{BindingType, LayoutConfig, LayoutEntry}, 
+    bind_group_layout::{BindingType, LayoutConfig, LayoutEntry}, 
     mesh::MeshData, 
-    registry::ResourceRegistry,
-    vertex::Vertex, wpgu_context::{CAMERA_GROUP, MATERIAL_GROUP}
+    registry::ResourceRegistry, 
+    render_pipeline::RenderPipelineBuilder, 
+    vertex::Vertex,
+    wpgu_context::{GLOBAL_UNIFORMS, MATERIAL_UNIFORMS}
 };
-
-/// lightwight configuration struct for WGPU rendering pipelines
-#[derive(Clone, Debug)]
-pub struct RenderPipelineConfig {
-    /// A unique identifier for the pipeline
-    pub name: String,
-    /// The path to the pipeline's shader source file
-    pub shader_path: String,
-    /// The name of the entry function into the vertex stage 
-    pub vert_main: String,
-    /// The name of the entry function into the fragment stage
-    pub frag_main: String,
-    /// The layout bindings the pipeline should expect (see wgpu_context)
-    pub layout_ids: Vec<String>,
-
-    /// the layouts used to create pipelines
-    pub(crate) layouts: Vec<Arc<wgpu::BindGroupLayout>>,
-}
 
 /// Preset rendering pipelines
 pub enum Pipeline {
@@ -33,20 +17,18 @@ pub enum Pipeline {
 }
 
 impl Pipeline {
-    /// Returns a RenderPipelineConfig corresponding to the pipeline preset variant
-    pub fn get(self) -> RenderPipelineConfig {
+    /// Returns a RenderPipelineBuilder corresponding to the pipeline preset variant
+    pub fn get(self) -> RenderPipelineBuilder {
         return match self {
-            Pipeline::ColoredSprite => RenderPipelineConfig {
-                name: "colored-sprite".to_string(),
-                shader_path: "src/graphics/shaders/shader.wgsl".to_string(),
-                vert_main: "vs_main".to_string(),
-                frag_main: "fs_main".to_string(),
-                layout_ids: vec![
-                    "camera-2d".to_string(),
-                    "colored-sprite".to_string()
-                ],
-                layouts: Vec::new()
-            },
+            Pipeline::ColoredSprite => {
+                let builder = RenderPipelineBuilder::new("colored-sprite")
+                    .with_shader("src/graphics/shaders/shader.wgsl")
+                    .with_vertex_layout::<Vertex>()
+                    .with_layout("camera-2d")
+                    .with_layout("colored-sprite");
+
+                builder
+            }
         }
     }
 }
@@ -68,7 +50,7 @@ impl BindingLayout {
 
                 Arc::new(LayoutConfig { 
                     key: "colored-sprite".to_string(),
-                    bind_group: MATERIAL_GROUP, 
+                    bind_group: MATERIAL_UNIFORMS, 
                     entries: vec![material]
                 })
             },
@@ -81,7 +63,7 @@ impl BindingLayout {
 
                 Arc::new(LayoutConfig { 
                     key: "camera-2d".to_string(),
-                    bind_group: CAMERA_GROUP, 
+                    bind_group: GLOBAL_UNIFORMS, 
                     entries: vec![camera]
                 })
             }

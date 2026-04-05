@@ -3,22 +3,23 @@ use winit::window::Window;
 use std::sync::Arc;
 
 use crate::graphics::{
+    bind_group_layout::LayoutHandler, 
     core::WgpuCore, 
+    gpu_resource::{GpuResourceHandler, ResourceBuilder, ResourceStatus}, 
     init_state::{InitMode, StateInit}, 
-    layout_handler::LayoutHandler, 
-    m_buffer_handler::MeshBufferHandler, 
     material::UniformGroup, 
-    presets::{BindingLayout, RenderPipelineConfig}, 
-    r_pipeline_handler::RenderPipelineHandler, 
-    registry::ResourceStatus, 
+    mesh_buffer::MeshBufferHandler, 
+    presets::BindingLayout, 
+    render_pipeline::RenderPipelineBuilder, 
     renderer::Renderer, 
     traits::Handler, 
-    u_buffer_handler::UniformBufferHandler
+    uniform_buffer::UniformBufferHandler
 };
 
-pub const CAMERA_GROUP: u32 = 0;
+/// group binding number for global uniforms
+pub const GLOBAL_UNIFORMS: u32 = 0;
 /// group binding number for material uniforms
-pub const MATERIAL_GROUP: u32 = 1;
+pub const MATERIAL_UNIFORMS: u32 = 1;
 
 /// Represents the entire WebGPU rendering context
 pub struct WgpuContext {
@@ -26,7 +27,7 @@ pub struct WgpuContext {
     layout_handler: LayoutHandler,
     mesh_handler: MeshBufferHandler,
     uniform_handler: UniformBufferHandler,
-    pipeline_handler: RenderPipelineHandler,
+    pipeline_handler: GpuResourceHandler<String, wgpu::RenderPipeline>,
 }
 
 impl WgpuContext {
@@ -39,7 +40,7 @@ impl WgpuContext {
 
         let mesh_handler = MeshBufferHandler::new(Arc::clone(&core.device));
         let uniform_handler = UniformBufferHandler::new(Arc::clone(&core.device));
-        let pipeline_handler = RenderPipelineHandler::new(Arc::clone(&core.device), core.config.format.clone());
+        let pipeline_handler = GpuResourceHandler::new(Arc::clone(&core.device));
 
         Self {
             core,
@@ -53,8 +54,7 @@ impl WgpuContext {
     /// initialize resources prior to rendering state
     pub fn init_resources(&mut self, init_state: StateInit) {
         for rpip_cmd in init_state.get_rpip_cmds() {
-            let rpip_config_cpy = rpip_cmd.config.clone();
-            self.init_pipeline(rpip_config_cpy, InitMode::Deferred);
+            self.init_pipeline(rpip_cmd.builder, InitMode::Deferred);
         }
         
         for bgl_cmd in init_state.get_bgl_cmds() {
@@ -69,26 +69,26 @@ impl WgpuContext {
         }
     }
 
-    fn init_pipeline(&mut self, config: RenderPipelineConfig, mode: InitMode) {
+    fn init_pipeline(&mut self, mut builder: RenderPipelineBuilder, mode: InitMode) {
         let mut layouts = Vec::new();
 
-        for id in &config.layout_ids {
+        for id in &builder.get_layout_ids() {
             if let Some(layout) = self.layout_handler.get(&id) {
                 layouts.push(Arc::clone(layout));
             } else {
-                panic!("Required layout {} not found for pipeline {}", id, config.name);
+                panic!("Required layout {} not found for pipeline {}", id, builder.get_key());
             }
         }
 
-        let mut rpip_config_cpy = config.clone();
-        rpip_config_cpy.layouts = layouts;
+        builder.set_format(self.core.config.format.clone());
+        builder.populate_bg_layouts(layouts);
 
         match mode {
             InitMode::Immediate => {
-                self.pipeline_handler.request_wait(Arc::new(rpip_config_cpy));
+                self.pipeline_handler.request_wait(builder);
             },
             InitMode::Deferred => {
-                self.pipeline_handler.request_new(Arc::new(rpip_config_cpy));
+                self.pipeline_handler.request_new(builder);
             }
         }
     }
@@ -170,7 +170,7 @@ impl WgpuContext {
             );
 
             // at this point we know the camera buffer exists, so we can safely bind it.
-            render_pass.set_bind_group(CAMERA_GROUP, &cam_data.bind_group, &[]);
+            render_pass.set_bind_group(GLOBAL_UNIFORMS, &cam_data.bind_group, &[]);
 
             let mut missing_meshes: Vec<u32> = Vec::new();
             let mut missing_pipelines: Vec<String> = Vec::new();
@@ -181,7 +181,7 @@ impl WgpuContext {
                     missing_meshes.push(cmd.mesh_id);
                 }
                 if self.pipeline_handler.status_of(&cmd.material_id).is_none() {
-                    self.init_pipeline(cmd.rpip_config, InitMode::Deferred);
+                    self.init_pipeline(cmd.rpip_builder, InitMode::Deferred);
 
                     missing_pipelines.push(cmd.material_id);
                 }
@@ -201,7 +201,7 @@ impl WgpuContext {
                         Some(ResourceStatus::Ready(uniforms))) = (m_status, p_status, u_status) 
                 {
                     render_pass.set_pipeline(pipeline);
-                    render_pass.set_bind_group(MATERIAL_GROUP, &uniforms.bind_group, &[]);
+                    render_pass.set_bind_group(MATERIAL_UNIFORMS, &uniforms.bind_group, &[]);
                     render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                     render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                     render_pass.draw_indexed(0..mesh.num_indices, 0, 0..1);

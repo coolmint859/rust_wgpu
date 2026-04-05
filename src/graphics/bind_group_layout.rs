@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
+use crate::graphics::gpu_resource::ResourceStatus;
+
 use super::{
-    registry::{ ResourceStatus, ResourceRegistry }, 
+    registry::ResourceRegistry, 
     traits::{ ResourceDescriptor, Handler }
 };
 

@@ -1,43 +1,7 @@
 #![allow(dead_code)]
 use std::{collections::HashMap, hash::Hash, sync::mpsc, time::Instant};
 
-/// Represents the state of a resource requested by the user of a registry instance.
-pub enum ResourceStatus<R> {
-    /// Resource has been requested but is not yet ready
-    Pending(Instant),
-
-    /// Resource is ready for retrieval
-    Ready(R),
-
-    /// Resource failed to complete
-    Failed(String),
-}
-
-impl<R> ResourceStatus<R> {
-    /// Retrieve the time the resource was added if still pending creation
-    fn creation_time(&self) -> Option<&Instant>{
-        match self {
-            ResourceStatus::Pending(time) => Some(time),
-            _ => None
-        }
-    }
-
-    /// Retreive a reference to the stored resource if available.
-    fn value(&self) -> Option<&R> {
-        match self {
-            ResourceStatus::Ready(resource) => Some(resource),
-            _ => None
-        }
-    }
-
-    /// retreive the error message if the stored resource failed to complete.
-    fn error_msg(&self) -> Option<&str> {
-        match self {
-            ResourceStatus::Failed(err) => Some(err.as_str()),
-            _ => None
-        }
-    }
-}
+use crate::graphics::gpu_resource::ResourceStatus;
 
 /// Manages and stores memory resources with concurrent creation and access.
 /// 

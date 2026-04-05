@@ -1,8 +1,8 @@
 #![allow(dead_code)]
-use crate::graphics::layout_handler::LayoutConfig;
-
-use super::presets::RenderPipelineConfig;
-
+use crate::graphics::{
+    bind_group_layout::LayoutConfig, 
+    render_pipeline::RenderPipelineBuilder
+};
 
 #[derive(Clone, Debug)]
 /// Initilazation mode for StateInit commands
@@ -16,7 +16,7 @@ pub enum InitMode {
 #[derive(Clone, Debug)]
 /// Command for generating a render pipline
 pub struct RenderPipelineCommand {
-    pub config: RenderPipelineConfig,
+    pub builder: RenderPipelineBuilder,
     pub mode: InitMode
 }
 
@@ -42,8 +42,8 @@ impl StateInit {
     }
 
     /// Add a render pipeline to the initialization commands.
-    pub fn add_render_pipeline(&mut self, config: RenderPipelineConfig, mode: InitMode) {
-        self.rpip_commands.push(RenderPipelineCommand { config, mode });
+    pub fn add_render_pipeline(&mut self, builder: RenderPipelineBuilder, mode: InitMode) {
+        self.rpip_commands.push(RenderPipelineCommand { builder, mode });
     }
 
     /// Add a bind group layout to the initialization commands.

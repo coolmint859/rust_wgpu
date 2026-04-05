@@ -1,6 +1,8 @@
 use bytemuck;
 use wgpu;
 
+use super::traits::VertexTrait;
+
 /// represents a single vertex on a mesh.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Zeroable, bytemuck::Pod)]
@@ -8,18 +10,14 @@ pub struct Vertex {
     pub position: [f32; 3],
 }
 
-impl Vertex {
-    pub fn desc() -> wgpu::VertexBufferLayout<'static> {
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    offset: 0,
-                    shader_location: 0,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-            ]
-        }
-    } 
+impl VertexTrait for Vertex {
+    fn attributes() -> Vec<wgpu::VertexAttribute> {
+        vec![
+            wgpu::VertexAttribute {
+                offset: 0,
+                shader_location: 0,
+                format: wgpu::VertexFormat::Float32x3,
+            },
+        ]
+    }
 }

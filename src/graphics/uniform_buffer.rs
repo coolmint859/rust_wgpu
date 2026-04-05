@@ -2,7 +2,10 @@ use std::{collections::HashMap, sync::Arc};
 use wgpu::util::DeviceExt;
 
 use crate::graphics::{
-    material::UniformGroup, registry::{ResourceRegistry, ResourceStatus}, traits::{Handler, ResourceDescriptor}
+    gpu_resource::ResourceStatus, 
+    material::UniformGroup, 
+    registry::ResourceRegistry, 
+    traits::{Handler, ResourceDescriptor}
 };
 
 pub struct UniformBuffer {

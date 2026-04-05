@@ -1,13 +1,13 @@
 use std::sync::Arc;
 use std::sync::atomic::{ AtomicU32, Ordering };
 
-use crate::graphics::material::Material;
-use crate::graphics::presets::RenderPipelineConfig;
-
-use super::transform::Transform;
-
-use super::vertex::Vertex;
-use super::traits::ResourceDescriptor;
+use super::{
+    material::Material,
+    render_pipeline::RenderPipelineBuilder,
+    transform::Transform,
+    vertex::Vertex,
+    traits::ResourceDescriptor
+};
 
 static DATA_COUNTER: AtomicU32 = AtomicU32::new(0);
 
@@ -52,14 +52,14 @@ pub struct Mesh<M: Material + Clone> {
     pub transform: Transform,
     pub data: Arc<MeshData>,
     pub material: M,
-    pub pipeline: RenderPipelineConfig,
+    pub pipeline: RenderPipelineBuilder,
 }
 
 impl<M: Material + Clone> Mesh<M> {
     pub fn new(
         data: Arc<MeshData>, 
         material: M, 
-        pipeline: RenderPipelineConfig
+        pipeline: RenderPipelineBuilder
     ) -> Self {
         Self {
            transform: Transform::default(),

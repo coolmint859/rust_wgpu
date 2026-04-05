@@ -1,7 +1,8 @@
 use std::{cell::Cell, sync::Arc};
 
 use crate::graphics::{
-    traits::ResourceDescriptor, u_buffer_handler::UniformBufferHandler
+    traits::ResourceDescriptor, 
+    uniform_buffer::UniformBufferHandler
 };
 
 /// Represents a single uniform on the gpu

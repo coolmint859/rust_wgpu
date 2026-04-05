@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 use crate::graphics::{
-    registry::ResourceStatus, 
-    renderer::Renderer, 
-    init_state::StateInit,
+    gpu_resource::ResourceStatus, 
+    init_state::StateInit, 
+    renderer::Renderer
 };
 
 use std::{hash::Hash, sync::Arc};
@@ -61,4 +61,8 @@ where D: ResourceDescriptor
 
     /// Get the status of resource (Pending, Ready, Failed). Returns None if the resource does not exist.
     fn status_of(&self, key: &D::Key) -> Option<&ResourceStatus<R>>;
+}
+
+pub trait VertexTrait: Copy + Clone + bytemuck::Zeroable + bytemuck::Pod {
+    fn attributes() -> Vec<wgpu::VertexAttribute>;
 }
