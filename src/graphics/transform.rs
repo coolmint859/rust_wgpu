@@ -73,15 +73,16 @@ impl Transform {
         self.is_dirty.set(true);
     }
 
+    /// Set the absolute rotation of the transform using Euler angles
     pub fn set_rotation_euler(&mut self, pitch: f32, yaw: f32, roll: f32) {
         self.rotation = Quat::from_euler(EulerRot::YXZ, yaw, pitch, roll);
         self.is_dirty.set(true);
     }
 
     /// reorient this transform to 'point' to a target
-    pub fn look_at(&mut self, target:Vec3, up:Vec3) {
+    pub fn look_at(&mut self, target: Vec3, up: Vec3) {
         let look_dir = self.position - target;
-        self.rotation = Quat::from_mat4(&Mat4::look_at_rh(self.position, look_dir, up));
+        self.rotation = Quat::from_mat4(&Mat4::look_at_rh(self.position, look_dir, up.normalize()));
         self.is_dirty.set(true);
     }
 

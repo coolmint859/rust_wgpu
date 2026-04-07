@@ -2,7 +2,7 @@
 use std::sync::Arc;
 
 use crate::graphics::{
-    bind_group_layout::{BindingType, LayoutConfig, LayoutEntry}, 
+    bind_group_layout::{BindGroupLayoutBuilder, BindingType, LayoutVisibility}, 
     mesh::MeshData, 
     registry::ResourceRegistry, 
     render_pipeline::RenderPipelineBuilder, 
@@ -24,8 +24,9 @@ impl Pipeline {
                 let builder = RenderPipelineBuilder::new("colored-sprite")
                     .with_shader("src/graphics/shaders/shader.wgsl")
                     .with_vertex_layout::<Vertex>()
-                    .with_layout("camera-2d")
-                    .with_layout("colored-sprite");
+                    .with_bg_layout("camera-2d")
+                    .with_bg_layout("colored-sprite")
+                    .with_label("colored-sprite");
 
                 builder
             }
@@ -39,33 +40,17 @@ pub enum BindingLayout {
 }
 
 impl BindingLayout {
-    pub fn get(self) -> Arc<LayoutConfig> {
+    pub fn get(self) -> BindGroupLayoutBuilder {
         return match self {
             BindingLayout::ColoredSprite => {
-                let material = LayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                    ty: BindingType::Uniform
-                };
-
-                Arc::new(LayoutConfig { 
-                    key: "colored-sprite".to_string(),
-                    bind_group: MATERIAL_UNIFORMS, 
-                    entries: vec![material]
-                })
+                BindGroupLayoutBuilder::new("colored-sprite")
+                    .with_group_id(MATERIAL_UNIFORMS)
+                    .with_entry(LayoutVisibility::VertexFragment, BindingType::Uniform)
             },
             BindingLayout::Camera2D => {
-                let camera = LayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                    ty: BindingType::Uniform
-                };
-
-                Arc::new(LayoutConfig { 
-                    key: "camera-2d".to_string(),
-                    bind_group: GLOBAL_UNIFORMS, 
-                    entries: vec![camera]
-                })
+                BindGroupLayoutBuilder::new("camera-2d")
+                    .with_group_id(GLOBAL_UNIFORMS)
+                    .with_entry(LayoutVisibility::VertexFragment, BindingType::Uniform)
             }
         }
     }
@@ -139,6 +124,7 @@ pub fn gen_triangle() -> MeshData {
         ],
         vec![0, 1, 2]
     )
+    .with_label("triangle")
 }
 
 /// Get raw square data
@@ -155,6 +141,7 @@ pub fn gen_square() -> MeshData  {
             2, 3, 0
         ]
     )
+    .with_label("square")
 }
 
 // /// Get raw polygon data

@@ -1,35 +1,9 @@
-use std::{cell::Cell, sync::Arc};
+use std::cell::Cell;
 
-use crate::graphics::{
-    traits::ResourceDescriptor, 
-    uniform_buffer::UniformBufferHandler
-};
-
-/// Represents a single uniform on the gpu
-#[derive(Clone, Debug)]
-pub struct UniformEntry {
-    pub bind_slot: u32,
-    pub data: Vec<u8>,
-}
-
-/// Represents a group of uniform data to be send to the gpu
-#[derive(Clone, Debug)]
-pub struct UniformGroup {
-    pub key: String,
-    pub contents: Vec<UniformEntry>,
-    pub bind_layout: Arc<wgpu::BindGroupLayout>,
-}
-
-impl ResourceDescriptor for UniformGroup {
-    type Key = String;
-
-    fn get_key(&self) -> &String {
-        &self.key
-    }
-}
+use crate::graphics::uniform::{UniformEntry, BindGroupBuilder};
 
 /// Represents a material, which defines how a mesh should look when rendered
-pub trait Material {
+pub trait Material: Clone {
     /// Get the key to this material
     fn get_key(&self) -> String;
 
@@ -85,7 +59,7 @@ impl Material for ColoredSprite {
 
         vec![UniformEntry { 
             bind_slot: 0, 
-            data: UniformBufferHandler::pad_uniform(uniform_data)
+            data: BindGroupBuilder::pad_uniform(uniform_data)
         }]
     }
 

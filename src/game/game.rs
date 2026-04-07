@@ -19,7 +19,7 @@ impl Game {
             Pipeline::ColoredSprite.get()
         );
 
-        let camera = Camera2D::default("main-cam");
+        let camera = Camera2D::new("main-cam");
 
         Self { square, camera }
     }

@@ -1,31 +1,23 @@
 use std::sync::Arc;
 
-use crate::graphics::gpu_resource::ResourceStatus;
+use super::gpu_resource::ResourceBuilder;
 
-use super::{
-    registry::ResourceRegistry, 
-    traits::{ ResourceDescriptor, Handler }
-};
-
-
-#[derive(Clone, Debug)]
-/// Represents a Bind Group Layout for wgpu
-pub struct LayoutConfig {
-    pub key: String,
-    pub bind_group: u32,
-    pub entries: Vec<LayoutEntry>
-}
-
-#[derive(Clone, Debug)]
 /// Represents a single bind group layout entry
+#[derive(Clone, Debug)]
 pub struct LayoutEntry {
     pub binding: u32,
     pub visibility: wgpu::ShaderStages,
     pub ty: BindingType,
 }
 
-#[derive(Clone, Debug)]
+pub enum LayoutVisibility {
+    Vertex,
+    Fragment,
+    VertexFragment,
+}
+
 /// Bind Group Entry layout types
+#[derive(Clone, Debug)]
 pub enum BindingType {
     Uniform,
     Storage,
@@ -33,34 +25,61 @@ pub enum BindingType {
     Sampler,
 }
 
-impl ResourceDescriptor for LayoutConfig {
-    type Key = String;
-
-    fn get_key(&self) -> &Self::Key { &self.key }
+#[derive(Clone, Debug)]
+pub struct BindGroupLayoutBuilder {
+    pub key: String,
+    pub group_id: u32,
+    pub entries: Vec<LayoutEntry>
 }
 
-/// Handles bind group layouts used for creating wgpu pipelines and buffers
-pub struct LayoutHandler {
-    device: Arc<wgpu::Device>,
-    layouts: ResourceRegistry<String, Arc<wgpu::BindGroupLayout>>
-}
-
-impl LayoutHandler {
-    pub fn new(device: Arc<wgpu::Device>) -> Self {
+impl BindGroupLayoutBuilder {
+    pub fn new(key: &str) -> Self {
         Self {
-            device,
-            layouts: ResourceRegistry::new(),
+            key: key.to_string(),
+            group_id: 0,
+            entries: Vec::new()
         }
     }
 
-    /// Create a new bind group layout based on a layout config
-    async fn create_binding_layout(
-        device: Arc<wgpu::Device>, 
-        desc: Arc<LayoutConfig>
-    ) -> Result<Arc<wgpu::BindGroupLayout>, String> {
+    /// Set the group id the bind group should be identified with
+    pub fn with_group_id(mut self, id: u32) -> Self {
+        self.group_id = id;
+        self
+    }
+
+    /// Add an entry into the Bind Group Layout.
+    /// 
+    /// Note: bind slots are determined by order - the first entry added has bind slot 0, second has slot 1, etc..
+    pub fn with_entry(mut self, visibility: LayoutVisibility, bind_type: BindingType) -> Self {
+        let bind_vis = match visibility {
+            LayoutVisibility::Vertex => wgpu::ShaderStages::VERTEX,
+            LayoutVisibility::Fragment => wgpu::ShaderStages::FRAGMENT,
+            LayoutVisibility::VertexFragment => wgpu::ShaderStages::VERTEX_FRAGMENT
+        };
+
+        let bind_slot = self.entries.len() as u32;
+        self.entries.push(LayoutEntry { 
+            binding: bind_slot, 
+            visibility: bind_vis, 
+            ty: bind_type
+        });
+
+        self
+    }
+}
+
+impl ResourceBuilder for BindGroupLayoutBuilder {
+    type Key = String;
+    type Output = Arc<wgpu::BindGroupLayout>;
+
+    fn get_key(&self) -> Self::Key {
+        self.key.clone()
+    }
+
+    fn build(&self, device: Arc<wgpu::Device>) -> Result<Self::Output, String> {
         let mut group_entries: Vec<wgpu::BindGroupLayoutEntry> = Vec::new();
 
-        for entry in &desc.entries {
+        for entry in &self.entries {
             group_entries.push(wgpu::BindGroupLayoutEntry {
                 binding: entry.binding,
                 visibility: entry.visibility,
@@ -82,59 +101,12 @@ impl LayoutHandler {
         }
 
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some(format!("[Bind Group Layout] @{}", &desc.bind_group).as_str()),
+            label: Some(format!("[Bind Group Layout] @{}", &self.key).as_str()),
             entries: &group_entries,
         });
 
-        println!("Created bind group layout '{}'", desc.key);
+        println!("Created bind group layout '{}'", self.key);
 
         Ok(Arc::new(layout))
-    }
-}
-
-impl Handler<LayoutConfig, Arc<wgpu::BindGroupLayout>> for LayoutHandler {
-    fn request_new(&mut self, desc: Arc<LayoutConfig>) {
-        let desc_cpy = Arc::clone(&desc);
-        let device_cpy = Arc::clone(&self.device);
-
-        self.layouts.request_new(
-            desc.get_key(), 
-            LayoutHandler::create_binding_layout(device_cpy, desc_cpy)
-        );
-    }
-
-    fn request_wait(&mut self, desc: Arc<LayoutConfig>) {
-        let desc_cpy = Arc::clone(&desc);
-        let device_cpy = Arc::clone(&self.device);
-
-        let result = self.layouts.request_wait(
-            desc.get_key(), 
-            LayoutHandler::create_binding_layout(device_cpy, desc_cpy)
-        );
-
-        match result {
-            Err(e) => eprintln!("Error creating bind group layout: {e}"),
-            _ => {}
-        }
-    }
-
-    fn contains(&self, key: &String) -> bool {
-        self.layouts.contains(key)
-    }
-
-    fn get(&self, key: &String) -> Option<&Arc<wgpu::BindGroupLayout>> {
-        self.layouts.get(key)
-    }
-
-    fn remove(&mut self, key: &String) {
-        self.layouts.remove(key);
-    }
-
-    fn sync(&mut self) {
-        self.layouts.sync();
-    }
-
-    fn status_of(&self, key: &String) -> Option<&ResourceStatus<Arc<wgpu::BindGroupLayout>>> {
-        self.layouts.status_of(key)
     }
 }

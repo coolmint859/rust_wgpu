@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 use crate::graphics::{
-    bind_group_layout::LayoutConfig, 
+    bind_group_layout::BindGroupLayoutBuilder, 
     render_pipeline::RenderPipelineBuilder
 };
 
@@ -23,7 +23,7 @@ pub struct RenderPipelineCommand {
 #[derive(Clone, Debug)]
 /// Command for generating a bind group layout
 pub struct BindGroupLayoutCommand {
-    pub config: LayoutConfig,
+    pub builder: BindGroupLayoutBuilder,
     pub mode: InitMode
 }
 
@@ -47,10 +47,9 @@ impl StateInit {
     }
 
     /// Add a bind group layout to the initialization commands.
-    pub fn add_bind_group_layout(&mut self, config: LayoutConfig, mode: InitMode) {
-        self.bgl_commands.push(BindGroupLayoutCommand { config, mode })
+    pub fn add_bind_group_layout(&mut self, builder: BindGroupLayoutBuilder, mode: InitMode) {
+        self.bgl_commands.push(BindGroupLayoutCommand { builder, mode })
     }
-
 
     pub fn get_rpip_cmds(&self) -> Vec<RenderPipelineCommand> {
         self.rpip_commands.to_vec()

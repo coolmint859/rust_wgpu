@@ -26,10 +26,9 @@ pub struct App<T> {
 
 impl<T: AppState> App<T> {
     pub fn new(app_state: T, attributes: WindowAttributes) -> Self {
-        let start_time = time::Instant::now();
         Self { 
             wgpu_ctx: None, 
-            prev_time: start_time,
+            prev_time: time::Instant::now(),
             elapsed_time: 0.0, 
             app_state,
             aspect_ratio: 1.0,

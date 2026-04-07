@@ -1,14 +1,10 @@
 use std::sync::Arc;
 
 use crate::graphics::{
-    camera::Camera, 
-    material::{Material, UniformEntry}, 
-    mesh::{Mesh, MeshData}, 
-    render_pipeline::RenderPipelineBuilder, 
-    traits::ResourceDescriptor,
-    uniform_buffer::UniformBufferHandler
+    camera::Camera, gpu_resource::ResourceBuilder, material::Material, mesh::{Mesh, MeshData}, render_pipeline::RenderPipelineBuilder, uniform::{UniformEntry, BindGroupBuilder},
 };
 
+/// commands for drawing a mesh to the screen
 #[derive(Clone, Debug)]
 pub struct DrawCommand {
     pub mesh_id: u32,
@@ -17,15 +13,16 @@ pub struct DrawCommand {
     pub rpip_builder: RenderPipelineBuilder
 }
 
+/// Commands for updating buffers
 #[derive(Clone, Debug)]
 pub struct UpdateCommand {
     pub uniform_id: String,
     pub entries: Vec<UniformEntry>
 }
 
+/// Uniforms that are global to the entire scene
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-/// Uniforms that are global to the entire scene
 pub struct GlobalUniforms {
     view_proj: [f32; 16],
     cam_pos: [f32; 3],
@@ -69,7 +66,7 @@ impl Renderer {
             uniform_id: camera.get_layout_id(), 
             entries: vec![UniformEntry {
                 bind_slot: 0,
-                data: UniformBufferHandler::pad_uniform(globals) 
+                data: BindGroupBuilder::pad_uniform(globals) 
             }],
         });
 
@@ -113,7 +110,7 @@ impl Renderer {
 
         self.draw_cmds.push(
             DrawCommand {
-                mesh_id: mesh.data.get_key().clone(),
+                mesh_id: mesh.data.get_key(),
                 material_id: mesh.material.get_key(),
                 data: Arc::clone(&mesh.data), 
                 rpip_builder: mesh.pipeline.clone()

@@ -94,31 +94,34 @@ impl Camera for Camera2D {
 }
 
 impl Camera2D {
-    pub fn new(key: &str, position: Vec2, zoom: f32, aspect_ratio: f32) -> Self {
-        let cam_pos = Vec3::new(position.x, position.y, 0.0);
-        let transform = Transform::new(cam_pos, Quat::IDENTITY, Vec3::ONE);
+    pub fn new(key: &str) -> Self {
         Self {
             key: key.to_string(),
             layout_id: "camera-2d".to_string(),
-            transform,
-            zoom,
-            aspect: aspect_ratio,
-            is_dirty: Cell::new(true),
-            view_proj_mat: glam::Mat4::IDENTITY
-        }
-    }
-
-    pub fn default(key: &str) -> Self {
-        let transform = Transform::new(Vec3::ZERO, Quat::IDENTITY, Vec3::ONE);
-        Self {
-            key: key.to_string(),
-            layout_id: "camera-2d".to_string(),
-            transform,
+            transform: Transform::default(),
             zoom: 1.0,
             aspect: 1.0,
             is_dirty: Cell::new(true),
             view_proj_mat: glam::Mat4::IDENTITY
         }
+    }
+
+    /// Define a Camera2D with an initial position
+    pub fn with_position(mut self, position: Vec3) -> Self {
+        self.transform.move_world(position);
+        self
+    }
+
+    /// Define a Camera2D with an initial rotation
+    pub fn with_rotation(mut self, rotation: Quat) -> Self {
+        self.transform.set_rotation(rotation);
+        self
+    }
+
+    /// Define a Camera2D with an initial zoom.
+    pub fn with_zoom(mut self, zoom: f32) -> Self {
+        self.zoom = zoom;
+        self
     }
 
     /// Move the camera relative to the local origin

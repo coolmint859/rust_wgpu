@@ -15,8 +15,7 @@ pub trait ResourceBuilder: Send + 'static {
     fn get_key(&self) -> Self::Key;
 
     /// Contruct the Output instance with the settings provided
-    fn build(&self, device: Arc<wgpu::Device>) -> Result<Self::Output, String>
-    where Self: Sized;
+    fn build(&self, device: Arc<wgpu::Device>) -> Result<Self::Output, String>;
 }
 
 /// Represents the state of a resource requested by the user of a registry instance.
@@ -126,8 +125,8 @@ where
     /// builder: B, Any object that implements the ResourceBuilder trait
     /// 
     /// Both the key and worker must implement the Send trait.
-    pub fn request_new<B: ResourceBuilder>(&mut self, builder: B) 
-    where B: ResourceBuilder<Key = K, Output = R> + Clone
+    pub fn request_new<B>(&mut self, builder: B) 
+    where B: ResourceBuilder<Key = K, Output = R>
     {
         let key = builder.get_key();
         if self.resource_map.contains_key(&key) {
@@ -242,5 +241,10 @@ where
     /// Get a completed resource. Returns None if the resource does not exist/is unavailable.
     pub fn get(&self, key: &K) -> Option<&R> {
         (self.resource_map.get(key)?).value()
+    }
+
+    /// Check if the internal map contains a resource with the specified key (in any state)
+    pub fn contains(&self, key: &K) -> bool {
+        self.resource_map.contains_key(key)
     }
 }

@@ -86,7 +86,7 @@ impl RenderPipelineBuilder {
     }
 
     /// Add a bind group layout to the render pipeline
-    pub fn with_layout(mut self, id: &str) -> Self {
+    pub fn with_bg_layout(mut self, id: &str) -> Self {
         self.layout_ids.push(id.to_string());
         self
     }
