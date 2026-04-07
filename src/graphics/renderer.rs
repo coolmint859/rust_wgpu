@@ -62,6 +62,35 @@ impl Renderer {
         }
     }
 
+    /// Get the draw commands from this renderer
+    pub fn draw_cmds(&self) -> &Vec<DrawCommand> {
+        &self.draw_cmds
+    }
+
+    /// Get the update commands from this renderer
+    pub fn update_cmds(&self) -> &Vec<UpdateCommand> {
+        &self.update_cmds
+    }
+
+    pub fn layout_cmds(&self) -> &Vec<LayoutCommand> {
+        &self.layout_cmds
+    }
+
+    /// Get the currently set camera's key
+    pub fn get_camera_key(&self) -> String {
+        self.camera_key.clone()
+    }
+
+    // Set the background color for the frame
+    pub fn set_bg_color(&mut self, r: f64, g: f64, b: f64) {
+        self.clear_color = wgpu::Color { r, g, b, a: 1.0 }
+    }
+
+    // Get the currently set background color (default is black)
+    pub fn get_bg_color(&self) -> &wgpu::Color {
+        &self.clear_color
+    }
+
     /// set the camera for the current frame
     pub fn set_camera<C: Camera>(&mut self, camera: &mut C) {
         if camera.is_dirty() {
@@ -88,25 +117,18 @@ impl Renderer {
         self.camera_key = camera.get_layout_id();
     }
 
-    /// Get the currently set camera's key
-    pub fn get_camera_key(&self) -> String {
-        self.camera_key.clone()
-    }
-
-    // Set the background color for the frame
-    pub fn set_bg_color(&mut self, r: f64, g: f64, b: f64) {
-        self.clear_color = wgpu::Color { r, g, b, a: 1.0 }
-    }
-
-    // Get the currently set background color (default is black)
-    pub fn get_bg_color(&self) -> &wgpu::Color {
-        &self.clear_color
-    }
-
     /// Draw an object to the current texture
     pub fn draw<M: Material>(&mut self, mesh: &mut Mesh<M>) {
-        self.gen_update_cmd(mesh);
         self.request_layout(&mesh.material.get_key(),  mesh.material.get_layout_builder());
+
+        if mesh.to_updated() {
+            self.update_cmds.push(
+                UpdateCommand { 
+                    uniform_id: mesh.material.get_key(), 
+                    entries: mesh.get_data()
+                }
+            )
+        }
 
         self.draw_cmds.push(
             DrawCommand {
@@ -119,20 +141,6 @@ impl Renderer {
         );
     }
 
-    /// Get the draw commands from this renderer
-    pub fn draw_cmds(&self) -> &Vec<DrawCommand> {
-        &self.draw_cmds
-    }
-
-    /// Get the update commands from this renderer
-    pub fn update_cmds(&self) -> &Vec<UpdateCommand> {
-        &self.update_cmds
-    }
-
-    pub fn layout_cmds(&self) -> &Vec<LayoutCommand> {
-        &self.layout_cmds
-    }
-
     /// Request a layout command to be queued. Commands with the same key already queued will be skipped
     fn request_layout(&mut self, id: &String, builder: BindGroupLayoutBuilder) {
         if self.submitted_layouts.insert(id.clone()) {
@@ -140,27 +148,6 @@ impl Renderer {
                 layout_id: id.clone(), 
                 layout_builder: builder
             });
-        }
-    }
-
-    /// Generate an update command if a mesh has updated since the last frame
-    fn gen_update_cmd<M: Material>(&mut self, mesh: &mut Mesh<M>) {
-        let transform_dirty = mesh.transform.is_dirty();
-        let material_dirty = mesh.material.is_dirty();
-
-        // only create an update command if the material or transform have changed
-        if transform_dirty || material_dirty {
-            mesh.transform.update_world_mat(); // make sure world matrix is up to date
-
-            let model_mat = mesh.transform.world_matrix();
-            let uniform_entries = mesh.material.get_data(model_mat);
-
-            self.update_cmds.push(
-                UpdateCommand { 
-                    uniform_id: mesh.material.get_key(), 
-                    entries: uniform_entries
-                }
-            )
         }
     }
 }

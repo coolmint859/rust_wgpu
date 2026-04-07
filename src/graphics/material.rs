@@ -7,6 +7,9 @@ pub trait Material: Clone {
     /// Get the key to this material
     fn get_key(&self) -> String;
 
+    /// Update the internal state of the material, marking it 'clean'
+    fn update_state(&mut self);
+
     /// Get the material data as a list of uniform entries - updates the internal dirty flag to false
     fn get_data(&self, model_mat: glam::Mat4) -> Vec<UniformEntry>;
 
@@ -53,8 +56,11 @@ impl Material for ColoredSprite {
         self.key.clone()
     }
 
-    fn get_data(&self, model_mat: glam::Mat4) -> Vec<UniformEntry> {
+    fn update_state(&mut self) {
         self.is_dirty.set(false);
+    }
+
+    fn get_data(&self, model_mat: glam::Mat4) -> Vec<UniformEntry> {
         let uniform_data = ColoredSpriteUniform {
             model_matrix: model_mat.to_cols_array(),
             color: self.color,

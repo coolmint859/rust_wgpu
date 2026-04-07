@@ -3,6 +3,7 @@ use std::sync::atomic::{ AtomicU32, Ordering };
 use wgpu::util::DeviceExt;
 
 use crate::graphics::gpu_resource::ResourceBuilder;
+use crate::graphics::uniform::UniformEntry;
 
 use super::{
     material::Material,
@@ -120,5 +121,32 @@ impl<M: Material> Mesh<M> {
         mesh_dup.transform = self.transform.clone();
         
         mesh_dup
+    }
+
+    /// Check if the mesh's state has changed since the last frame.
+    pub fn is_dirty(&self) -> bool {
+        self.material.is_dirty() || self.transform.is_dirty()
+    }
+
+    /// Check if this mesh's state is outdated, and if so, update it.
+    /// 
+    /// Returns true if any feature of the mesh had changed, false otherwise
+    pub fn to_updated(&mut self) -> bool {
+        let mut changed = false;
+        if self.material.is_dirty() {
+            self.material.update_state();
+            changed = true;
+        }
+        if self.transform.is_dirty() {
+            self.transform.update_world_mat();
+            changed = true;
+        }
+
+        changed
+    }
+
+    /// Get the most recent data of this mesh.
+    pub fn get_data(&self) -> Vec<UniformEntry> {
+        self.material.get_data(self.transform.world_matrix())
     }
 }
