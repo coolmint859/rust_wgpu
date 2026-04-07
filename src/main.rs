@@ -13,11 +13,12 @@ use winit::{
     application::ApplicationHandler, dpi::{PhysicalSize, Size}, event::*, event_loop::{ ActiveEventLoop, ControlFlow, EventLoop }, keyboard::{ KeyCode, PhysicalKey }, window::{ Window, WindowAttributes, WindowId }
 };
 
-use crate::graphics::init_state::StateInit;
+use crate::graphics::{camera::{Camera, Camera2D}, init_state::StateInit};
 
 pub struct App<T> {
     app_state: T,
     wgpu_ctx: Option<WgpuContext>,
+    default_cam: Camera2D,
     prev_time: time::Instant,
     elapsed_time: f32,
     aspect_ratio: f32,
@@ -27,6 +28,7 @@ pub struct App<T> {
 impl<T: AppState> App<T> {
     pub fn new(app_state: T, attributes: WindowAttributes) -> Self {
         Self { 
+            default_cam: Camera2D::new("default"),
             wgpu_ctx: None, 
             prev_time: time::Instant::now(),
             elapsed_time: 0.0, 
@@ -85,7 +87,11 @@ impl<T: AppState> ApplicationHandler for App<T> {
                 self.aspect_ratio = size.width as f32 / size.height as f32;
             },
             WindowEvent::RedrawRequested => {
+                self.default_cam.set_aspect_ratio(self.aspect_ratio);
+
                 let mut renderer = Renderer::new(self.elapsed_time);
+                renderer.set_camera(&mut self.default_cam);
+
                 self.app_state.render(&mut renderer, self.aspect_ratio);
                 wgpu_ctx.render(renderer).unwrap();
             }

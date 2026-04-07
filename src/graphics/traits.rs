@@ -17,7 +17,3 @@ pub trait AppState {
     /// Called at the end of each frame before drawing commands are sent to the GPU.
     fn render(&mut self, renderer: &mut Renderer, aspect: f32);
 }
-
-pub trait VertexTrait: Copy + Clone + bytemuck::Zeroable + bytemuck::Pod {
-    fn attributes() -> Vec<wgpu::VertexAttribute>;
-}

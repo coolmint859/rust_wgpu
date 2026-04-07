@@ -3,7 +3,7 @@ use std::{borrow::Cow, sync::Arc};
 
 use crate::graphics::{
     gpu_resource::ResourceBuilder, 
-    traits::VertexTrait
+    vertex::VertexTrait
 };
 
 #[derive(Clone, Debug)]

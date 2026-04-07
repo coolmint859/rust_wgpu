@@ -1,6 +1,6 @@
 use std::cell::Cell;
 
-use crate::graphics::uniform::{UniformEntry, BindGroupBuilder};
+use crate::graphics::{bind_group_layout::{BindGroupLayoutBuilder, LayoutVisibility}, uniform::{BindGroupBuilder, UniformEntry}};
 
 /// Represents a material, which defines how a mesh should look when rendered
 pub trait Material: Clone {
@@ -9,6 +9,9 @@ pub trait Material: Clone {
 
     /// Get the material data as a list of uniform entries - updates the internal dirty flag to false
     fn get_data(&self, model_mat: glam::Mat4) -> Vec<UniformEntry>;
+
+    /// Get the bind group layout builder for this material.
+    fn get_layout_builder(&self) -> BindGroupLayoutBuilder;
 
     /// Check if this material has changed since the last uniform request
     fn is_dirty(&self) -> bool;
@@ -61,6 +64,12 @@ impl Material for ColoredSprite {
             bind_slot: 0, 
             data: BindGroupBuilder::pad_uniform(uniform_data)
         }]
+    }
+
+    fn get_layout_builder(&self) -> BindGroupLayoutBuilder {
+        BindGroupLayoutBuilder::new(&self.key).with_uniform_entry(
+            LayoutVisibility::VertexFragment
+        )
     }
 
     fn is_dirty(&self) -> bool {

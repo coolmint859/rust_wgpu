@@ -2,7 +2,7 @@
 use std::cell::Cell;
 use glam::{Mat4, Quat, Vec2, Vec3};
 
-use crate::graphics::transform::Transform;
+use crate::graphics::{bind_group_layout::{BindGroupLayoutBuilder, LayoutVisibility}, transform::Transform};
 
 pub trait Camera {
     /// Get the unique identifier for this camera
@@ -10,6 +10,9 @@ pub trait Camera {
 
     /// Get the id to the bind group layout to which this camera represents
     fn get_layout_id(&self) -> String;
+
+    /// Get the bind group layout builder for this camera
+    fn get_layout_builder(&self) -> BindGroupLayoutBuilder;
 
     /// Get the view-projection matrix
     fn get_view_proj_mat(&self) -> glam::Mat4;
@@ -49,6 +52,12 @@ impl Camera for Camera2D {
         self.layout_id.clone()
     }
 
+    fn get_layout_builder(&self) -> BindGroupLayoutBuilder {
+        BindGroupLayoutBuilder::new(&self.layout_id).with_uniform_entry(
+            LayoutVisibility::VertexFragment,
+        )
+    }
+
     fn get_position(&self) -> Vec3 {
         self.transform.position
     }
@@ -71,25 +80,23 @@ impl Camera for Camera2D {
 
     /// update the camera's view-projection matrix
     fn update_view_proj_mat(&mut self) {
-        if self.is_dirty() {
-            self.transform.update_world_mat();
-            let view_mat = self.transform.world_matrix().inverse();
+        self.transform.update_world_mat();
+        let view_mat = self.transform.world_matrix().inverse();
 
-            let half_width = self.aspect / self.zoom;
-            let half_height = 1.0 / self.zoom;
+        let half_width = self.aspect / self.zoom;
+        let half_height = 1.0 / self.zoom;
 
-            let proj_mat = glam::Mat4::orthographic_lh(
-                -half_width, 
-                half_width, 
-                -half_height, 
-                half_height, 
-                -1.0, 
-                1.0
-            );
+        let proj_mat = glam::Mat4::orthographic_lh(
+            -half_width, 
+            half_width, 
+            -half_height, 
+            half_height, 
+            -1.0, 
+            1.0
+        );
 
-            self.view_proj_mat = proj_mat * view_mat;
-            self.is_dirty.set(false);
-        }
+        self.view_proj_mat = proj_mat * view_mat;
+        self.is_dirty.set(false);
     }
 }
 

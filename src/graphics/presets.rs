@@ -2,12 +2,11 @@
 use std::sync::Arc;
 
 use crate::graphics::{
-    bind_group_layout::{BindGroupLayoutBuilder, BindingType, LayoutVisibility}, 
+    bind_group_layout::{BindGroupLayoutBuilder, LayoutVisibility}, 
     mesh::MeshData, 
     registry::ResourceRegistry, 
     render_pipeline::RenderPipelineBuilder, 
     vertex::Vertex,
-    wpgu_context::{GLOBAL_UNIFORMS, MATERIAL_UNIFORMS}
 };
 
 /// Preset rendering pipelines
@@ -21,14 +20,12 @@ impl Pipeline {
     pub fn get(self) -> RenderPipelineBuilder {
         return match self {
             Pipeline::ColoredSprite => {
-                let builder = RenderPipelineBuilder::new("colored-sprite")
+                RenderPipelineBuilder::new("colored-sprite")
                     .with_shader("src/graphics/shaders/shader.wgsl")
                     .with_vertex_layout::<Vertex>()
                     .with_bg_layout("camera-2d")
                     .with_bg_layout("colored-sprite")
-                    .with_label("colored-sprite");
-
-                builder
+                    .with_label("colored-sprite")
             }
         }
     }
@@ -43,14 +40,14 @@ impl BindingLayout {
     pub fn get(self) -> BindGroupLayoutBuilder {
         return match self {
             BindingLayout::ColoredSprite => {
-                BindGroupLayoutBuilder::new("colored-sprite")
-                    .with_group_id(MATERIAL_UNIFORMS)
-                    .with_entry(LayoutVisibility::VertexFragment, BindingType::Uniform)
+                BindGroupLayoutBuilder::new("colored-sprite").with_uniform_entry(
+                    LayoutVisibility::VertexFragment
+                )
             },
             BindingLayout::Camera2D => {
-                BindGroupLayoutBuilder::new("camera-2d")
-                    .with_group_id(GLOBAL_UNIFORMS)
-                    .with_entry(LayoutVisibility::VertexFragment, BindingType::Uniform)
+                BindGroupLayoutBuilder::new("camera-2d").with_uniform_entry(
+                    LayoutVisibility::VertexFragment
+                )
             }
         }
     }

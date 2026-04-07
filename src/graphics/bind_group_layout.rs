@@ -7,18 +7,22 @@ use super::gpu_resource::ResourceBuilder;
 pub struct LayoutEntry {
     pub binding: u32,
     pub visibility: wgpu::ShaderStages,
-    pub ty: BindingType,
+    pub ty: LayoutBindType,
 }
 
+/// The shader stages the bind group is visible to
 pub enum LayoutVisibility {
+    /// Bind group is visible to the vertex stage
     Vertex,
+    /// Bind group is visible to the fragment stage
     Fragment,
+    /// Bind group is visible to the vertex and fragment stages
     VertexFragment,
 }
 
 /// Bind Group Entry layout types
 #[derive(Clone, Debug)]
-pub enum BindingType {
+pub enum LayoutBindType {
     Uniform,
     Storage,
     Texture,
@@ -28,7 +32,7 @@ pub enum BindingType {
 #[derive(Clone, Debug)]
 pub struct BindGroupLayoutBuilder {
     pub key: String,
-    pub group_id: u32,
+    // pub group_id: u32,
     pub entries: Vec<LayoutEntry>
 }
 
@@ -36,21 +40,21 @@ impl BindGroupLayoutBuilder {
     pub fn new(key: &str) -> Self {
         Self {
             key: key.to_string(),
-            group_id: 0,
+            // group_id: 0,
             entries: Vec::new()
         }
     }
 
-    /// Set the group id the bind group should be identified with
-    pub fn with_group_id(mut self, id: u32) -> Self {
-        self.group_id = id;
-        self
-    }
+    // /// Set the group id the bind group should be identified with
+    // pub fn with_group_id(mut self, id: u32) -> Self {
+    //     self.group_id = id;
+    //     self
+    // }
 
     /// Add an entry into the Bind Group Layout.
     /// 
     /// Note: bind slots are determined by order - the first entry added has bind slot 0, second has slot 1, etc..
-    pub fn with_entry(mut self, visibility: LayoutVisibility, bind_type: BindingType) -> Self {
+    pub fn with_entry(mut self, visibility: LayoutVisibility, bind_type: LayoutBindType) -> Self {
         let bind_vis = match visibility {
             LayoutVisibility::Vertex => wgpu::ShaderStages::VERTEX,
             LayoutVisibility::Fragment => wgpu::ShaderStages::FRAGMENT,
@@ -65,6 +69,13 @@ impl BindGroupLayoutBuilder {
         });
 
         self
+    }
+
+    /// Add a uniform buffer entry into the Bind Group Layout.
+    /// 
+    /// Note: bind slots are determined by order - the first entry added has bind slot 0, second has slot 1, etc..
+    pub fn with_uniform_entry(self, visibility: LayoutVisibility) -> Self {
+        self.with_entry(visibility, LayoutBindType::Uniform)
     }
 }
 
@@ -84,12 +95,12 @@ impl ResourceBuilder for BindGroupLayoutBuilder {
                 binding: entry.binding,
                 visibility: entry.visibility,
                 ty: match entry.ty {
-                    BindingType::Uniform => wgpu::BindingType::Buffer { 
+                    LayoutBindType::Uniform => wgpu::BindingType::Buffer { 
                         ty: wgpu::BufferBindingType::Uniform, 
                         has_dynamic_offset: false, 
                         min_binding_size: None
                     },
-                    BindingType::Storage => wgpu::BindingType::Buffer { 
+                    LayoutBindType::Storage => wgpu::BindingType::Buffer { 
                         ty: wgpu::BufferBindingType::Storage { read_only: false }, 
                         has_dynamic_offset: false, 
                         min_binding_size: None 

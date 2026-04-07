@@ -98,9 +98,17 @@ impl WgpuContext {
         self.core.resize(width, height);
     }
 
+    fn process_layouts(&mut self, renderer: &Renderer) {
+        for cmd in renderer.layout_cmds() {
+            if self.layout_handler.status_of(&cmd.layout_id).is_none() {
+                self.layout_handler.request_new(cmd.layout_builder.clone());
+            }
+        }
+    }
+
     /// process and update uniform buffers
     fn process_uniforms(&mut self, renderer: &Renderer) {
-        for cmd in &renderer.update_cmds() {
+        for cmd in renderer.update_cmds() {
             if let Some(uniforms) = self.uniform_handler.get(&cmd.uniform_id) {
                 for entry in &cmd.entries {
                     let buffer = uniforms.buffers.get(&entry.bind_slot).unwrap();
@@ -108,6 +116,10 @@ impl WgpuContext {
                     self.core.queue.write_buffer(buffer, 0, &entry.data);
                 }
             } else if !self.uniform_handler.contains(&cmd.uniform_id) {
+                if !self.layout_handler.is_ready(&cmd.uniform_id) {
+                    continue;
+                }
+
                 self.uniform_handler.request_new(
                     Arc::new(BindGroupBuilder {
                         key: cmd.uniform_id.clone(),
@@ -126,13 +138,13 @@ impl WgpuContext {
 
         for cmd in renderer.draw_cmds() {
             if self.mesh_handler.status_of(&cmd.mesh_id).is_none() {
-                self.mesh_handler.request_new(cmd.data);
+                self.mesh_handler.request_new(cmd.data.clone());
                 missing_meshes.push(cmd.mesh_id);
             }
             if self.pipeline_handler.status_of(&cmd.material_id).is_none() {
-                self.init_pipeline(cmd.rpip_builder, InitMode::Deferred);
+                self.init_pipeline(cmd.rpip_builder.clone(), InitMode::Deferred);
 
-                missing_pipelines.push(cmd.material_id);
+                missing_pipelines.push(cmd.material_id.clone());
             }
         }
 
@@ -164,7 +176,8 @@ impl WgpuContext {
             return Ok(());
         }
 
-        // process uniform updates
+        // process layout construction and uniform updates
+        self.process_layouts(&renderer);
         self.process_uniforms(&renderer);
 
         // verify camera existance

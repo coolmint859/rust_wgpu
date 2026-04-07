@@ -1,7 +1,9 @@
 use bytemuck;
 use wgpu;
 
-use super::traits::VertexTrait;
+pub trait VertexTrait: Copy + Clone + bytemuck::Zeroable + bytemuck::Pod {
+    fn attributes() -> Vec<wgpu::VertexAttribute>;
+}
 
 /// represents a single vertex on a mesh.
 #[repr(C)]

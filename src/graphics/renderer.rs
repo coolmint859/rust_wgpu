@@ -1,8 +1,13 @@
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 use crate::graphics::{
-    camera::Camera, gpu_resource::ResourceBuilder, material::Material, mesh::{Mesh, MeshData}, render_pipeline::RenderPipelineBuilder, uniform::{UniformEntry, BindGroupBuilder},
+    bind_group_layout::BindGroupLayoutBuilder, camera::Camera, gpu_resource::ResourceBuilder, material::Material, mesh::{Mesh, MeshData}, render_pipeline::RenderPipelineBuilder, uniform::{BindGroupBuilder, UniformEntry}
 };
+
+pub struct LayoutCommand {
+    pub layout_id: String,
+    pub layout_builder: BindGroupLayoutBuilder
+}
 
 /// commands for drawing a mesh to the screen
 #[derive(Clone, Debug)]
@@ -10,7 +15,8 @@ pub struct DrawCommand {
     pub mesh_id: u32,
     pub material_id: String, 
     pub data: Arc<MeshData>, 
-    pub rpip_builder: RenderPipelineBuilder
+    pub rpip_builder: RenderPipelineBuilder,
+    pub z_depth: f32,
 }
 
 /// Commands for updating buffers
@@ -34,6 +40,8 @@ pub struct GlobalUniforms {
 /// This acts as a translator for high level constructs into low level data 
 /// for the WgpuContext during a single frame.
 pub struct Renderer {
+    submitted_layouts: HashSet<String>,
+    layout_cmds: Vec<LayoutCommand>,
     draw_cmds: Vec<DrawCommand>,
     update_cmds: Vec<UpdateCommand>,
     clear_color: wgpu::Color,
@@ -43,7 +51,9 @@ pub struct Renderer {
 
 impl Renderer {
     pub fn new(elapsed_time: f32) -> Self {
-        Self { 
+        Self {
+            submitted_layouts: HashSet::new(),
+            layout_cmds: Vec::new(),
             draw_cmds: Vec::new(),
             update_cmds: Vec::new(),
             clear_color: wgpu::Color::BLACK,
@@ -54,21 +64,26 @@ impl Renderer {
 
     /// set the camera for the current frame
     pub fn set_camera<C: Camera>(&mut self, camera: &mut C) {
-        camera.update_view_proj_mat();
+        if camera.is_dirty() {
+            camera.update_view_proj_mat();
 
-        let globals = GlobalUniforms {
-            view_proj: camera.get_view_proj_mat().to_cols_array(),
-            cam_pos: camera.get_position().to_array(),
-            elapsed_time: self.elapsed_time,
-        };
+            let camera_key = camera.get_layout_id();
+            self.request_layout(&camera_key, camera.get_layout_builder());
 
-        self.update_cmds.push(UpdateCommand { 
-            uniform_id: camera.get_layout_id(), 
-            entries: vec![UniformEntry {
-                bind_slot: 0,
-                data: BindGroupBuilder::pad_uniform(globals) 
-            }],
-        });
+            let globals = GlobalUniforms {
+                view_proj: camera.get_view_proj_mat().to_cols_array(),
+                cam_pos: camera.get_position().to_array(),
+                elapsed_time: self.elapsed_time,
+            };
+
+            self.update_cmds.push(UpdateCommand { 
+                uniform_id: camera_key.clone(), 
+                entries: vec![UniformEntry {
+                    bind_slot: 0,
+                    data: BindGroupBuilder::pad_uniform(globals) 
+                }],
+            });
+        }
 
         self.camera_key = camera.get_layout_id();
     }
@@ -89,7 +104,47 @@ impl Renderer {
     }
 
     /// Draw an object to the current texture
-    pub fn draw<M: Material + Clone>(&mut self, mesh: &mut Mesh<M>) {
+    pub fn draw<M: Material>(&mut self, mesh: &mut Mesh<M>) {
+        self.gen_update_cmd(mesh);
+        self.request_layout(&mesh.material.get_key(),  mesh.material.get_layout_builder());
+
+        self.draw_cmds.push(
+            DrawCommand {
+                mesh_id: mesh.data.get_key(),
+                material_id: mesh.material.get_key(),
+                data: Arc::clone(&mesh.data), 
+                rpip_builder: mesh.pipeline.clone(),
+                z_depth: mesh.transform.position.z,
+            }
+        );
+    }
+
+    /// Get the draw commands from this renderer
+    pub fn draw_cmds(&self) -> &Vec<DrawCommand> {
+        &self.draw_cmds
+    }
+
+    /// Get the update commands from this renderer
+    pub fn update_cmds(&self) -> &Vec<UpdateCommand> {
+        &self.update_cmds
+    }
+
+    pub fn layout_cmds(&self) -> &Vec<LayoutCommand> {
+        &self.layout_cmds
+    }
+
+    /// Request a layout command to be queued. Commands with the same key already queued will be skipped
+    fn request_layout(&mut self, id: &String, builder: BindGroupLayoutBuilder) {
+        if self.submitted_layouts.insert(id.clone()) {
+            self.layout_cmds.push(LayoutCommand { 
+                layout_id: id.clone(), 
+                layout_builder: builder
+            });
+        }
+    }
+
+    /// Generate an update command if a mesh has updated since the last frame
+    fn gen_update_cmd<M: Material>(&mut self, mesh: &mut Mesh<M>) {
         let transform_dirty = mesh.transform.is_dirty();
         let material_dirty = mesh.material.is_dirty();
 
@@ -107,24 +162,5 @@ impl Renderer {
                 }
             )
         }
-
-        self.draw_cmds.push(
-            DrawCommand {
-                mesh_id: mesh.data.get_key(),
-                material_id: mesh.material.get_key(),
-                data: Arc::clone(&mesh.data), 
-                rpip_builder: mesh.pipeline.clone()
-            }
-        );
-    }
-
-    /// Get the draw commands from this renderer
-    pub fn draw_cmds(&self) -> Vec<DrawCommand> {
-        self.draw_cmds.to_vec()
-    }
-
-    /// Get the update commands from this renderer
-    pub fn update_cmds(&self) -> Vec<UpdateCommand> {
-        self.update_cmds.to_vec()
     }
 }
