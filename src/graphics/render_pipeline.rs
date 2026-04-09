@@ -3,14 +3,13 @@ use std::{borrow::Cow, sync::Arc};
 
 use crate::graphics::{
     gpu_resource::ResourceBuilder, 
-    vertex::VertexTrait
+    vertex::Vertex
 };
 
 #[derive(Clone, Debug)]
 /// Implements the builder pattern for constructing render pipelines
 pub struct RenderPipelineBuilder {
     label: String,
-    key: String,
 
     shader_path: String,
     vs_main: String,
@@ -30,9 +29,8 @@ pub struct RenderPipelineBuilder {
 }
 
 impl RenderPipelineBuilder {
-    pub fn new(key: &str) -> Self {
+    pub fn new() -> Self {
         Self {
-            key: key.to_string(),
             label: "default".to_string(),
             shader_path: "NOT SET".to_string(),
             vs_main: "vs_main".to_string(),
@@ -54,14 +52,14 @@ impl RenderPipelineBuilder {
         self
     }
 
-    /// Set the label of the pipeline descriptors for GPU profiling
+    /// Add a custom label for GPU profiling
     pub fn with_label(mut self, label: &str) -> Self {
         self.label = label.to_string();
         self
     }
 
     /// Set the expected vertex layout
-    pub fn with_vertex_layout<V: VertexTrait>(mut self) -> Self {
+    pub fn with_vertex_layout<V: Vertex>(mut self) -> Self {
         self.vertex_stride = std::mem::size_of::<V>() as u64;
         self.vertex_attribs = V::attributes();
         self
@@ -131,12 +129,7 @@ impl RenderPipelineBuilder {
 }
 
 impl ResourceBuilder for RenderPipelineBuilder {
-    type Key = String;
     type Output = wgpu::RenderPipeline;
-
-    fn get_key(&self) -> Self::Key {
-        self.key.clone()
-    }
 
     /// Construct the render pipeline with the settings provided
     fn build(&self, device: Arc<wgpu::Device>) -> Result<Self::Output, String> {

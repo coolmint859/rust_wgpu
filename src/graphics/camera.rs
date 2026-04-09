@@ -2,7 +2,7 @@
 use std::cell::Cell;
 use glam::{Mat4, Quat, Vec2, Vec3};
 
-use crate::graphics::{bind_group_layout::{BindGroupLayoutBuilder, LayoutVisibility}, transform::Transform};
+use crate::graphics::{bind_group::{BindGroupLayoutBuilder, LayoutVisibility}, transform::Transform};
 
 pub trait Camera {
     /// Get the unique identifier for this camera
@@ -53,9 +53,9 @@ impl Camera for Camera2D {
     }
 
     fn get_layout_builder(&self) -> BindGroupLayoutBuilder {
-        BindGroupLayoutBuilder::new(&self.layout_id).with_uniform_entry(
-            LayoutVisibility::VertexFragment,
-        )
+        BindGroupLayoutBuilder::new()
+            .with_label("camera-2d")
+            .with_uniform_entry(LayoutVisibility::VertexFragment)
     }
 
     fn get_position(&self) -> Vec3 {
@@ -74,7 +74,6 @@ impl Camera for Camera2D {
         if self.aspect != new_aspect {
             self.aspect = new_aspect;
             self.is_dirty.set(true);
-            println!("changed aspect ratio: {}", new_aspect);
         }
     }
 

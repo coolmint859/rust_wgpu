@@ -1,29 +1,39 @@
 use std::{collections::HashSet, sync::Arc};
 
 use crate::graphics::{
-    bind_group_layout::BindGroupLayoutBuilder, camera::Camera, gpu_resource::ResourceBuilder, material::Material, mesh::{Mesh, MeshData}, render_pipeline::RenderPipelineBuilder, uniform::{BindGroupBuilder, UniformEntry}
+    bind_group::*, 
+    buffer::BufferBuilder, 
+    camera::Camera,
+    material::Material, 
+    mesh::{Mesh, MeshData}, 
+    render_pipeline::RenderPipelineBuilder,
+    tracker::ResourceTracker
 };
 
-pub struct LayoutCommand {
-    pub layout_id: String,
-    pub layout_builder: BindGroupLayoutBuilder
-}
-
-/// commands for drawing a mesh to the screen
+/// Commands for creating resources
+/// 
 #[derive(Clone, Debug)]
-pub struct DrawCommand {
-    pub mesh_id: u32,
-    pub material_id: String, 
-    pub data: Arc<MeshData>, 
-    pub rpip_builder: RenderPipelineBuilder,
-    pub z_depth: f32,
+pub enum CreateCommand {
+    BindGroupLayout{ id: String, builder: BindGroupLayoutBuilder },
+    BindGroup{ id: String, bind_keys: Vec<ResourceID> }, // bind group builders are made by the context
+    RenderPipeline{ id: String, builder: RenderPipelineBuilder },
+    Mesh { id: u32, builder: Arc<MeshData> },
+    Buffer { id: ResourceID, builder: BufferBuilder}
 }
 
-/// Commands for updating buffers
 #[derive(Clone, Debug)]
 pub struct UpdateCommand {
-    pub uniform_id: String,
-    pub entries: Vec<UniformEntry>
+    pub key: ResourceID, 
+    pub data: Vec<u8> 
+}
+
+#[derive(Clone, Debug)]
+pub struct DrawCommand {
+    pub id: u32,
+    pub mat_id: String,
+    pub data: Arc<MeshData>,
+    pub rpip_builder: RenderPipelineBuilder,
+    pub z_depth: f32,
 }
 
 /// Uniforms that are global to the entire scene
@@ -41,25 +51,37 @@ pub struct GlobalUniforms {
 /// for the WgpuContext during a single frame.
 pub struct Renderer {
     submitted_layouts: HashSet<String>,
-    layout_cmds: Vec<LayoutCommand>,
+
+    create_cmds: Vec<CreateCommand>,
     draw_cmds: Vec<DrawCommand>,
     update_cmds: Vec<UpdateCommand>,
+
     clear_color: wgpu::Color,
     camera_key: String,
     elapsed_time: f32,
+
+    tracker: Option<ResourceTracker>,
 }
 
 impl Renderer {
-    pub fn new(elapsed_time: f32) -> Self {
+    pub fn new(tracker: ResourceTracker, elapsed_time: f32) -> Self {
         Self {
             submitted_layouts: HashSet::new(),
-            layout_cmds: Vec::new(),
+            create_cmds: Vec::new(),
             draw_cmds: Vec::new(),
             update_cmds: Vec::new(),
             clear_color: wgpu::Color::BLACK,
             camera_key: "".to_string(),
-            elapsed_time
+            elapsed_time,
+            tracker: Some(tracker)
         }
+    }
+
+    /// Clear all commands in the queues
+    pub fn clear_commands(&mut self) {
+        self.create_cmds.clear();
+        self.update_cmds.clear();
+        self.draw_cmds.clear();
     }
 
     /// Get the draw commands from this renderer
@@ -72,8 +94,9 @@ impl Renderer {
         &self.update_cmds
     }
 
-    pub fn layout_cmds(&self) -> &Vec<LayoutCommand> {
-        &self.layout_cmds
+    /// Get the create commands from this render
+    pub fn create_cmds(&self) -> &Vec<CreateCommand> {
+        &self.create_cmds
     }
 
     /// Get the currently set camera's key
@@ -93,11 +116,11 @@ impl Renderer {
 
     /// set the camera for the current frame
     pub fn set_camera<C: Camera>(&mut self, camera: &mut C) {
+        let camera_key = camera.get_layout_id();
+        self.request_layout(&camera_key, || {camera.get_layout_builder()});
+
         if camera.is_dirty() {
             camera.update_view_proj_mat();
-
-            let camera_key = camera.get_layout_id();
-            self.request_layout(&camera_key, camera.get_layout_builder());
 
             let globals = GlobalUniforms {
                 view_proj: camera.get_view_proj_mat().to_cols_array(),
@@ -105,13 +128,20 @@ impl Renderer {
                 elapsed_time: self.elapsed_time,
             };
 
-            self.update_cmds.push(UpdateCommand { 
-                uniform_id: camera_key.clone(), 
-                entries: vec![UniformEntry {
-                    bind_slot: 0,
-                    data: BindGroupBuilder::pad_uniform(globals) 
-                }],
-            });
+            let key = ResourceID { group_id: camera_key.clone(), binding: 0};
+            let builder_fn = || {
+                BufferBuilder::as_uniform(0)
+                    .with_data_from_struct(globals)
+            };
+
+            // only update if the buffer was already requested
+            if !self.request_buffer(&key, builder_fn) {
+                self.update_cmds.push(UpdateCommand { 
+                    key: key.clone(), data: BufferBuilder::to_padded_vec(globals),
+                });
+            }
+
+            self.request_bind_group(&camera_key, vec![key]);
         }
 
         self.camera_key = camera.get_layout_id();
@@ -119,21 +149,23 @@ impl Renderer {
 
     /// Draw an object to the current texture
     pub fn draw<M: Material>(&mut self, mesh: &mut Mesh<M>) {
-        self.request_layout(&mesh.material.get_key(),  mesh.material.get_layout_builder());
+        let mesh_key = &mesh.material.get_key();
+        self.request_layout(mesh_key, || { mesh.material.get_layout_builder() });
 
-        if mesh.to_updated() {
-            self.update_cmds.push(
-                UpdateCommand { 
-                    uniform_id: mesh.material.get_key(), 
-                    entries: mesh.get_data()
-                }
-            )
-        }
+        if self.request_mesh(mesh) { return;} // GATE 1: mesh data must exist
+        if self.process_buffers(mesh) { return; } // GATE 2: // buffers must exist
 
+        // only request bind group/pipeline when all buffers have already been requested.
+        let uniform_keys: Vec<ResourceID> = mesh.get_requirements().iter().map(|(key, _)| { key.clone() }).collect();
+        let bind_group_requested = self.request_bind_group(&mesh.material.get_key(), uniform_keys);
+        let pipeline_requested = self.request_render_pipeline(mesh);
+        if bind_group_requested && pipeline_requested { return; } // GATE 3: pipeline/bind group must exist
+
+        // draw command issued only after bind group, pipeline, and buffers already were requested
         self.draw_cmds.push(
             DrawCommand {
-                mesh_id: mesh.data.get_key(),
-                material_id: mesh.material.get_key(),
+                id: mesh.data.id(),
+                mat_id: mesh.material.get_key(),
                 data: Arc::clone(&mesh.data), 
                 rpip_builder: mesh.pipeline.clone(),
                 z_depth: mesh.transform.position.z,
@@ -141,13 +173,85 @@ impl Renderer {
         );
     }
 
-    /// Request a layout command to be queued. Commands with the same key already queued will be skipped
-    fn request_layout(&mut self, id: &String, builder: BindGroupLayoutBuilder) {
-        if self.submitted_layouts.insert(id.clone()) {
-            self.layout_cmds.push(LayoutCommand { 
-                layout_id: id.clone(), 
-                layout_builder: builder
-            });
+    /// Process a mesh's buffers
+    fn process_buffers<M: Material>(&mut self, mesh: &mut Mesh<M>) -> bool {
+        let most_recent_data = mesh.get_updated();
+        let requirements = mesh.get_requirements();
+
+        let mut buffer_request_made = false;
+        for (id, builder) in requirements {
+            buffer_request_made = self.request_buffer(&id, || { builder }) || buffer_request_made;
         }
+        if buffer_request_made { return true; } // buffers must exist
+
+        for (id, data) in most_recent_data {
+            self.update_cmds.push(UpdateCommand { key: id, data });
+        }
+
+        return false;
+    }
+
+    /// Request a layout command to be queued. Commands with the same key already queued will be skipped
+    fn request_layout(&mut self, key: &String, builder_fn: impl FnOnce() -> BindGroupLayoutBuilder) {
+        let not_submitted = self.submitted_layouts.insert(key.clone());
+        let not_requested = !self.tracker.as_mut().unwrap().bg_layouts.contains(key); 
+        
+        if not_submitted && not_requested {
+            let builder = builder_fn();
+            self.create_cmds.push(CreateCommand::BindGroupLayout { id: key.clone(), builder });
+        }
+    }
+
+    /// request a create buffer command to be queued. Commands with the same key already queued will be skipped.
+    fn request_buffer(&mut self, key: &ResourceID, builder_fn: impl FnOnce() -> BufferBuilder) -> bool {
+        if !self.tracker.as_mut().unwrap().buffers.contains(&key) {
+            let builder = builder_fn();
+            self.create_cmds.push(CreateCommand::Buffer { id: key.clone(), builder });
+            return true;
+        }
+        return false;
+    }
+
+    /// request a create mesh command to be queued. Commands with the same key already queued will be skipped.
+    fn request_mesh<M: Material>(&mut self, mesh: &Mesh<M>) -> bool {
+        let mesh_id = mesh.data.id();
+        if !self.tracker.as_mut().unwrap().meshes.contains(&mesh_id) {
+            self.create_cmds.push(CreateCommand::Mesh { 
+                id: mesh_id, 
+                builder: mesh.get_data_builder()
+            });
+            return true;
+        }
+        return false;
+    }
+
+    /// request a create render pipeline command to be queued. Commands with the same key already queued will be skipped.
+    fn request_render_pipeline<M: Material>(&mut self, mesh: &Mesh<M>) -> bool {
+        let key = mesh.material.get_key();
+        if !self.tracker.as_mut().unwrap().pipelines.contains(&key) {
+            self.create_cmds.push(CreateCommand::RenderPipeline { 
+                id: key, 
+                builder: mesh.get_pipeline_builder()
+            });
+            return true;
+        }
+        return false;
+    }
+
+    /// request a create bind group command to be queued. Commands with the same key already queued will be skipped.
+    fn request_bind_group(&mut self, key: &String, resource_keys: Vec<ResourceID>) -> bool {
+        if !self.tracker.as_mut().unwrap().bind_groups.contains(key) {
+            self.create_cmds.push(CreateCommand::BindGroup { 
+                id: key.clone(), 
+                bind_keys: resource_keys
+            });
+            return true;
+        }
+        return false;
+    }
+
+    /// Take ownership of the renderer's tracker. Should only be called after all commands are recorded.
+    pub(crate) fn take_tracker(&mut self) -> ResourceTracker {
+        self.tracker.take().expect("Tracker already taken!")
     }
 }

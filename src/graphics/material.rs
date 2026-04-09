@@ -1,6 +1,6 @@
 use std::cell::Cell;
 
-use crate::graphics::{bind_group_layout::{BindGroupLayoutBuilder, LayoutVisibility}, uniform::{BindGroupBuilder, UniformEntry}};
+use crate::graphics::{bind_group::{BindGroupLayoutBuilder, LayoutVisibility}, buffer::BufferBuilder};
 
 /// Represents a material, which defines how a mesh should look when rendered
 pub trait Material: Clone {
@@ -11,7 +11,7 @@ pub trait Material: Clone {
     fn update_state(&mut self);
 
     /// Get the material data as a list of uniform entries - updates the internal dirty flag to false
-    fn get_data(&self, model_mat: glam::Mat4) -> Vec<UniformEntry>;
+    fn get_data(&self, model_mat: glam::Mat4) -> Vec<u8>;
 
     /// Get the bind group layout builder for this material.
     fn get_layout_builder(&self) -> BindGroupLayoutBuilder;
@@ -60,22 +60,19 @@ impl Material for ColoredSprite {
         self.is_dirty.set(false);
     }
 
-    fn get_data(&self, model_mat: glam::Mat4) -> Vec<UniformEntry> {
+    fn get_data(&self, model_mat: glam::Mat4) -> Vec<u8> {
         let uniform_data = ColoredSpriteUniform {
             model_matrix: model_mat.to_cols_array(),
             color: self.color,
         };
 
-        vec![UniformEntry { 
-            bind_slot: 0, 
-            data: BindGroupBuilder::pad_uniform(uniform_data)
-        }]
+        BufferBuilder::to_padded_vec(uniform_data)
     }
 
     fn get_layout_builder(&self) -> BindGroupLayoutBuilder {
-        BindGroupLayoutBuilder::new(&self.key).with_uniform_entry(
-            LayoutVisibility::VertexFragment
-        )
+        BindGroupLayoutBuilder::new()
+        .with_label("colored-sprite")
+        .with_uniform_entry(LayoutVisibility::VertexFragment)
     }
 
     fn is_dirty(&self) -> bool {

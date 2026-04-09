@@ -1,18 +1,18 @@
 use bytemuck;
 use wgpu;
 
-pub trait VertexTrait: Copy + Clone + bytemuck::Zeroable + bytemuck::Pod {
+pub trait Vertex: Copy + Clone + bytemuck::Zeroable + bytemuck::Pod {
     fn attributes() -> Vec<wgpu::VertexAttribute>;
 }
 
-/// represents a single vertex on a mesh.
+/// A vertex with only a position attribute
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Zeroable, bytemuck::Pod)]
-pub struct Vertex {
+pub struct PositionVertex {
     pub position: [f32; 3],
 }
 
-impl VertexTrait for Vertex {
+impl Vertex for PositionVertex {
     fn attributes() -> Vec<wgpu::VertexAttribute> {
         vec![
             wgpu::VertexAttribute {

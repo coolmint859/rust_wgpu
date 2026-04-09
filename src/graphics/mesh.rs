@@ -1,37 +1,37 @@
 use std::sync::Arc;
 use std::sync::atomic::{ AtomicU32, Ordering };
-use wgpu::util::DeviceExt;
 
-use crate::graphics::gpu_resource::ResourceBuilder;
-use crate::graphics::uniform::UniformEntry;
+use crate::graphics::bind_group::ResourceID;
+use crate::graphics::buffer::BufferBuilder;
+use crate::graphics::gpu_resource::{CompositeBuilder, ResourceBuilder};
 
 use super::{
     material::Material,
     render_pipeline::RenderPipelineBuilder,
     transform::Transform,
-    vertex::Vertex,
+    vertex::PositionVertex,
 };
 
 /// represents a mesh as it lives on the gpu during rendering, most importantly it's buffers
 pub struct MeshBuffer {
-    pub vertex_buffer: wgpu::Buffer,
-    pub index_buffer: wgpu::Buffer,
+    pub vertex_buffer: Arc<wgpu::Buffer>,
+    pub index_buffer: Arc<wgpu::Buffer>,
     pub num_indices: u32,
 }
 
 static DATA_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 /// Represents vertex and index data as it lives in cpu memory
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct MeshData {
     id: u32,
     label: String,
-    vertex_data: Vec<Vertex>,
+    vertex_data: Vec<PositionVertex>,
     index_data: Vec<u32>,
 }
 
 impl MeshData {
-    pub fn new(vertex_data: Vec<Vertex>, index_data: Vec<u32>) -> Self {
+    pub fn new(vertex_data: Vec<PositionVertex>, index_data: Vec<u32>) -> Self {
         let id = DATA_COUNTER.fetch_add(1, Ordering::SeqCst);
 
         Self { label: "{id}".to_string(), id, vertex_data,  index_data }
@@ -53,40 +53,41 @@ impl MeshData {
         let index_data = self.index_data.to_vec();
         MeshData::new(vertex_data, index_data)
     }
+
+    pub fn id(&self) -> u32 { self.id.clone() }
 }
 
-impl ResourceBuilder for Arc<MeshData> {
-    type Key = u32;
-    type Output = MeshBuffer;
+impl CompositeBuilder<BufferBuilder, MeshBuffer> for Arc<MeshData> {
+    fn build(&self, device: Arc<wgpu::Device>) -> Result<MeshBuffer, String> {
+        let vertex_data: Vec<u8> = bytemuck::cast_slice(&self.vertex_data).to_vec();
+        let index_data: Vec<u8> = bytemuck::cast_slice(&self.index_data).to_vec();
 
-    fn get_key(&self) -> u32 {
-        self.id
-    }
+        let vertex_buffer = BufferBuilder::as_vertex(0)
+            .with_label(&format!("mesh #{}: vertex", self.id))
+            .with_data(vertex_data)
+            .build(Arc::clone(&device))?;
 
-    fn build(&self, device: Arc<wgpu::Device>) -> Result<Self::Output, String> {
-        let vertex_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some(format!("Vertex Buffer [{}]", self.label).as_str()),
-                contents: bytemuck::cast_slice(self.vertex_data.as_slice()),
-                usage: wgpu::BufferUsages::VERTEX,
-            }
-        );
+        let index_buffer = BufferBuilder::as_index(0)
+            .with_label(&format!("mesh #{}: index", self.id))
+            .with_data(index_data)
+            .build(Arc::clone(&device))?;
 
-        let index_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some(format!("Index Buffer [{}]", self.label).as_str()),
-                contents: bytemuck::cast_slice(self.index_data.as_slice()),
-                usage: wgpu::BufferUsages::INDEX,
-            }
-        );
-
-        println!("Created vertex/index buffer '{}'", self.label);
+        println!("Created mesh data with id #{}", self.id);
 
         Ok(MeshBuffer {
             vertex_buffer,
             index_buffer,
-            num_indices: self.index_data.len() as u32,
+            num_indices: self.index_data.len() as u32
         })
+    }
+}
+
+/// Allows us to treat the mesh data as if it was a regular resource builder
+impl ResourceBuilder for Arc<MeshData> {
+    type Output = MeshBuffer;
+
+    fn build(&self, device: Arc<wgpu::Device>) -> Result<Self::Output, String> {
+        CompositeBuilder::build(self, device)
     }
 }
 
@@ -111,7 +112,37 @@ impl<M: Material> Mesh<M> {
         }
     }
 
-    /// Create a shallow copy of this mesh (does not duplicate vertex/index or material data)
+    /// get the required buffers and their keys needed to render the mesh.
+    pub fn get_requirements(&self) -> Vec<(ResourceID, BufferBuilder)> {
+        let material_data = self.material.get_data(self.transform.world_matrix());
+
+        let mat_key= self.material.get_key();
+
+        let key = ResourceID { group_id: mat_key.clone(), binding: 0 };
+        let builder = BufferBuilder::as_uniform( 0)
+            .with_label(&format!("mesh #{}:{}", self.data.id, mat_key))
+            .with_data(material_data);
+
+        return vec![(key, builder)]
+    }
+
+    /// Check for internal updates and return key-value pairs of updated resources.
+    /// 
+    /// This is a destructive read, so subsequent calls in the same frame will yeild an empty vector
+    pub fn get_updated(&mut self) -> Vec<(ResourceID, Vec<u8>)> {
+        if self.material.is_dirty() {
+            self.material.update_state();
+        }
+        if self.transform.is_dirty() {
+            self.transform.update_world_mat();
+        }
+
+        let key = ResourceID { group_id: self.material.get_key(), binding: 0 };
+        let data = self.material.get_data(self.transform.world_matrix());
+        vec![(key, data)]
+    }
+
+    /// Create a shallow copy of this mesh (does not duplicate vertex/index data)
     pub fn duplicate(&self) -> Mesh<M> {
         let mut mesh_dup = Mesh::new(
             Arc::clone(&self.data),
@@ -123,30 +154,11 @@ impl<M: Material> Mesh<M> {
         mesh_dup
     }
 
-    /// Check if the mesh's state has changed since the last frame.
-    pub fn is_dirty(&self) -> bool {
-        self.material.is_dirty() || self.transform.is_dirty()
+    pub fn get_data_builder(&self) -> Arc<MeshData> {
+        Arc::clone(&self.data)
     }
 
-    /// Check if this mesh's state is outdated, and if so, update it.
-    /// 
-    /// Returns true if any feature of the mesh had changed, false otherwise
-    pub fn to_updated(&mut self) -> bool {
-        let mut changed = false;
-        if self.material.is_dirty() {
-            self.material.update_state();
-            changed = true;
-        }
-        if self.transform.is_dirty() {
-            self.transform.update_world_mat();
-            changed = true;
-        }
-
-        changed
-    }
-
-    /// Get the most recent data of this mesh.
-    pub fn get_data(&self) -> Vec<UniformEntry> {
-        self.material.get_data(self.transform.world_matrix())
+    pub fn get_pipeline_builder(&self) -> RenderPipelineBuilder {
+        self.pipeline.clone()
     }
 }

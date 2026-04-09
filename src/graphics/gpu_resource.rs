@@ -7,15 +7,22 @@ use std::{
 };
 
 /// Represents the builder pattern for resources, constructing them asyncronously
-pub trait ResourceBuilder: Send + 'static {
-    type Key: Hash + Send + Eq + PartialEq + 'static;
+pub trait ResourceBuilder: Send + Clone + 'static {
     type Output: Send + 'static;
-    
-    /// Get the key associated with the constructed resource
-    fn get_key(&self) -> Self::Key;
 
     /// Contruct the Output instance with the settings provided
     fn build(&self, device: Arc<wgpu::Device>) -> Result<Self::Output, String>;
+}
+
+/// Bundles related builders into one, allowing their outputs to be combined into a single struct T
+pub trait CompositeBuilder<B, T>: Send + Clone + 'static
+where
+    B: ResourceBuilder,
+    T: Send + 'static
+{
+
+    /// Contruct a T instance using the set builders
+    fn build(&self, device: Arc<wgpu::Device>) -> Result<T, String>;
 }
 
 /// Represents the state of a resource requested by the user of a registry instance.
@@ -57,6 +64,10 @@ impl<R> ResourceStatus<R> {
 }
 
 /// Manages and stores gpu memory resources with concurrent creation through builder objects.
+/// 
+/// K: The key type to store resouces with
+/// 
+/// R: the resource type that will be stored
 /// 
 /// TODO: force_request() and update() with prior thread cancelation (use thread JoinHandle)
 pub struct GpuResourceHandler<K, R> {
@@ -100,13 +111,12 @@ where
     /// builder: B, Any object that implements the ResourceBuilder trait
     /// 
     /// Both the key and worker must implement the Send trait.
-    pub fn get_or_request<B>(&mut self, builder: B) -> Option<&R> 
-    where B: ResourceBuilder<Key = K, Output = R> + Clone
+    pub fn get_or_request<B>(&mut self, key: &K, builder: &B) -> Option<&R> 
+    where B: ResourceBuilder<Output = R> + Clone
     {
-        let key = builder.get_key();
         // resource does not exist in map
         if !self.resource_map.contains_key(&key) {
-            self.request_new( builder);
+            self.request_new(&key, builder);
             return None;
         }
         
@@ -122,45 +132,46 @@ where
     /// 
     /// key: K, a handle to retrieve the resource when available
     /// 
-    /// builder: B, Any object that implements the ResourceBuilder trait
+    /// builder: B, Any object that implements the ResourceBuilder trait,
+    ///  whose types Key and Output match this handlers K and R types, respectively
     /// 
     /// Both the key and worker must implement the Send trait.
-    pub fn request_new<B>(&mut self, builder: B) 
-    where B: ResourceBuilder<Key = K, Output = R>
+    pub fn request_new<B>(&mut self, key: &K, builder: &B) 
+    where B: ResourceBuilder<Output = R>
     {
-        let key = builder.get_key();
+        let key_cpy = key.clone();
         if self.resource_map.contains_key(&key) {
             return;
         }
 
         let device_cpy = Arc::clone(&self.device);
+        let builder_cpy = builder.clone();
 
         let status = ResourceStatus::Pending(Instant::now());
-        self.resource_map.insert(key.clone(), status);
+        self.resource_map.insert(key_cpy.clone(), status);
 
         let tx = self.tx.clone();
 
         tokio::task::spawn(async move {
-            let result = builder.build(device_cpy); 
-            let _ = tx.send((key, result));
+            let result = builder_cpy.build(device_cpy); 
+            let _ = tx.send((key_cpy, result));
         });
     }
     
     /// Request a new resource and wait for it's completion, blocking the calling thread until complete.
     /// 
     /// Returns a result object describing whether the the resource was successfuly created.
-    pub fn request_wait<B>(&mut self, builder: B) -> Result<(), String>
-    where B: ResourceBuilder<Key = K, Output = R> + Clone
+    pub fn request_wait<B>(&mut self, key: &K, builder: &B) -> Result<(), String>
+    where B: ResourceBuilder<Output = R> + Clone
     {
-        let key = builder.get_key();
-        if self.resource_map.contains_key(&key) {
+        if self.resource_map.contains_key(key) {
             return Ok(());
         }
         
         // build is a blocking call
         match builder.build(Arc::clone(&self.device)) {
             Ok(resource) => {
-                self.store(&key, resource);
+                self.store(key, resource);
                 Ok(())
             },
             Err(msg) => Err(msg)
@@ -246,5 +257,17 @@ where
     /// Check if the internal map contains a resource with the specified key (in any state)
     pub fn contains(&self, key: &K) -> bool {
         self.resource_map.contains_key(key)
+    }
+
+    pub fn status_of_all(&self) -> Vec<(&K, String)> {
+        self.resource_map.iter().map(|(key, resource)| {
+            let status = match resource {
+                ResourceStatus::Failed(_) => "FAILED",
+                ResourceStatus::Pending(_) => "PENDING",
+                ResourceStatus::Ready(_) => "READY",
+            };
+
+            (key, status.to_string())
+        }).collect()
     }
 }

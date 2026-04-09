@@ -2,11 +2,11 @@
 use std::sync::Arc;
 
 use crate::graphics::{
-    bind_group_layout::{BindGroupLayoutBuilder, LayoutVisibility}, 
+    bind_group::{BindGroupLayoutBuilder, LayoutVisibility}, 
     mesh::MeshData, 
     registry::ResourceRegistry, 
     render_pipeline::RenderPipelineBuilder, 
-    vertex::Vertex,
+    vertex::PositionVertex,
 };
 
 /// Preset rendering pipelines
@@ -20,9 +20,10 @@ impl Pipeline {
     pub fn get(self) -> RenderPipelineBuilder {
         return match self {
             Pipeline::ColoredSprite => {
-                RenderPipelineBuilder::new("colored-sprite")
+                RenderPipelineBuilder::new()
+                    .with_label("colored-sprite")
                     .with_shader("src/graphics/shaders/shader.wgsl")
-                    .with_vertex_layout::<Vertex>()
+                    .with_vertex_layout::<PositionVertex>()
                     .with_bg_layout("camera-2d")
                     .with_bg_layout("colored-sprite")
                     .with_label("colored-sprite")
@@ -33,6 +34,7 @@ impl Pipeline {
 
 pub enum BindingLayout {
     ColoredSprite,
+    TexturedSprite,
     Camera2D,
 }
 
@@ -40,14 +42,19 @@ impl BindingLayout {
     pub fn get(self) -> BindGroupLayoutBuilder {
         return match self {
             BindingLayout::ColoredSprite => {
-                BindGroupLayoutBuilder::new("colored-sprite").with_uniform_entry(
-                    LayoutVisibility::VertexFragment
-                )
+                BindGroupLayoutBuilder::new()
+                    .with_label("colored-sprite")
+                    .with_uniform_entry(LayoutVisibility::VertexFragment)
+            },
+            BindingLayout::TexturedSprite => {
+                BindGroupLayoutBuilder::new()
+                    .with_label("textured-sprite")
+                    .with_uniform_entry(LayoutVisibility::Fragment)
             },
             BindingLayout::Camera2D => {
-                BindGroupLayoutBuilder::new("camera-2d").with_uniform_entry(
-                    LayoutVisibility::VertexFragment
-                )
+                BindGroupLayoutBuilder::new()
+                    .with_label("camera-2d")
+                    .with_uniform_entry(LayoutVisibility::VertexFragment)
             }
         }
     }
@@ -115,9 +122,9 @@ impl Shape2D {
 pub fn gen_triangle() -> MeshData {
     MeshData::new(
         vec![
-            Vertex { position: [0.0, 0.5, 0.0] },
-            Vertex { position: [-0.5, -0.5, 0.0] },
-            Vertex { position: [0.5, -0.5, 0.0] },
+            PositionVertex { position: [0.0, 0.5, 0.0] },
+            PositionVertex { position: [-0.5, -0.5, 0.0] },
+            PositionVertex { position: [0.5, -0.5, 0.0] },
         ],
         vec![0, 1, 2]
     )
@@ -128,10 +135,10 @@ pub fn gen_triangle() -> MeshData {
 pub fn gen_square() -> MeshData  {
     MeshData::new(
         vec![
-            Vertex { position: [ 0.5,  0.5, 0.0] },
-            Vertex { position: [-0.5,  0.5, 0.0] },
-            Vertex { position: [-0.5, -0.5, 0.0] },
-            Vertex { position: [ 0.5, -0.5, 0.0] },
+            PositionVertex { position: [ 0.5,  0.5, 0.0] },
+            PositionVertex { position: [-0.5,  0.5, 0.0] },
+            PositionVertex { position: [-0.5, -0.5, 0.0] },
+            PositionVertex { position: [ 0.5, -0.5, 0.0] },
         ],
         vec![
             0, 1, 2,
