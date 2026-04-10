@@ -3,7 +3,7 @@ use std::sync::atomic::{ AtomicU32, Ordering };
 
 use crate::graphics::bind_group::ResourceID;
 use crate::graphics::buffer::BufferBuilder;
-use crate::graphics::gpu_resource::{CompositeBuilder, ResourceBuilder};
+use crate::graphics::gpu_resource::ResourceBuilder;
 
 use super::{
     material::Material,
@@ -49,15 +49,19 @@ impl MeshData {
     /// Note: The resulting duplicate will not refer to the same buffer data on the gpu.
     /// This is handled automatically by the renderer, but it is worth consideration.
     pub fn duplicate(&self) -> MeshData  {
-        let vertex_data = self.vertex_data.to_vec();
-        let index_data = self.index_data.to_vec();
-        MeshData::new(vertex_data, index_data)
+        MeshData::new(
+            self.vertex_data.to_vec(), 
+            self.index_data.to_vec()
+        )
     }
 
     pub fn id(&self) -> u32 { self.id.clone() }
 }
 
-impl CompositeBuilder<BufferBuilder, MeshBuffer> for Arc<MeshData> {
+/// Allows us to treat the mesh data as if it was a regular resource builder
+impl ResourceBuilder for Arc<MeshData> {
+    type Output = MeshBuffer;
+
     fn build(&self, device: Arc<wgpu::Device>) -> Result<MeshBuffer, String> {
         let vertex_data: Vec<u8> = bytemuck::cast_slice(&self.vertex_data).to_vec();
         let index_data: Vec<u8> = bytemuck::cast_slice(&self.index_data).to_vec();
@@ -72,22 +76,13 @@ impl CompositeBuilder<BufferBuilder, MeshBuffer> for Arc<MeshData> {
             .with_data(index_data)
             .build(Arc::clone(&device))?;
 
-        println!("Created mesh data with id #{}", self.id);
+        println!("[Mesh Data] Created new mesh data with id #{}", self.id);
 
         Ok(MeshBuffer {
             vertex_buffer,
             index_buffer,
             num_indices: self.index_data.len() as u32
         })
-    }
-}
-
-/// Allows us to treat the mesh data as if it was a regular resource builder
-impl ResourceBuilder for Arc<MeshData> {
-    type Output = MeshBuffer;
-
-    fn build(&self, device: Arc<wgpu::Device>) -> Result<Self::Output, String> {
-        CompositeBuilder::build(self, device)
     }
 }
 
@@ -140,6 +135,11 @@ impl<M: Material> Mesh<M> {
         let key = ResourceID { group_id: self.material.get_key(), binding: 0 };
         let data = self.material.get_data(self.transform.world_matrix());
         vec![(key, data)]
+    }
+
+    /// Retrieve this mesh's resource keys as vector of ResourceIDs
+    pub fn get_resource_keys(&self) -> Vec<ResourceID> {
+        vec![ResourceID { group_id: self.material.get_key(), binding: 0 }]
     }
 
     /// Create a shallow copy of this mesh (does not duplicate vertex/index data)

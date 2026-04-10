@@ -221,7 +221,7 @@ impl ResourceBuilder for RenderPipelineBuilder {
             }
         );
 
-        println!("Created pipeline '{}'", self.label);
+        println!("[Render Pipeline] Created new render pipeline with label '{}'", self.label);
 
         Ok(render_pipeline)
     }

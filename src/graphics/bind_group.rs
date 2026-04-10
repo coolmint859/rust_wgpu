@@ -136,7 +136,7 @@ impl ResourceBuilder for BindGroupLayoutBuilder {
             entries: &group_entries,
         });
 
-        println!("Created bind group layout '{}'", self.label);
+        println!("[Bind Group Layout] Created new bind group layout with label '{}'", self.label);
 
         Ok(Arc::new(layout))
     }
@@ -229,7 +229,7 @@ impl ResourceBuilder for BindGroupBuilder {
             }
         );
 
-        println!("Created bind group '{}'", self.label);
+        println!("[Bind Group] Created new bind group with label '{}'", self.label);
 
         Ok(bind_group)
     }

@@ -51,8 +51,8 @@ impl WgpuContext {
 
     /// initialize resources prior to rendering state
     pub fn init_resources(&mut self, init_state: StateInit) {
-        for mut rpip_cmd in init_state.get_rpip_cmds() {
-            self.init_pipeline(&rpip_cmd.key, &mut rpip_cmd.builder, InitMode::Deferred);
+        for rpip_cmd in init_state.get_rpip_cmds() {
+            self.init_pipeline(&rpip_cmd.key, rpip_cmd.builder, InitMode::Deferred);
         }
         
         for bgl_cmd in init_state.get_bgl_cmds() {
@@ -67,7 +67,8 @@ impl WgpuContext {
         }
     }
 
-    fn init_pipeline(&mut self, key: &String, builder: &mut RenderPipelineBuilder, mode: InitMode) {
+    /// Initialize a new pipeline request
+    fn init_pipeline(&mut self, key: &String, mut builder: RenderPipelineBuilder, mode: InitMode) {
         let mut layouts = Vec::new();
 
         for id in &builder.get_layout_ids() {
@@ -84,14 +85,15 @@ impl WgpuContext {
         self.writer_tracker.pipelines.insert(key.clone());
         match mode {
             InitMode::Immediate => {
-                let _ = self.pipeline_handler.request_wait(&key, builder);
+                let _ = self.pipeline_handler.request_wait(&key, &builder);
             },
             InitMode::Deferred => {
-                self.pipeline_handler.request_new(&key, builder);
+                self.pipeline_handler.request_new(&key, &builder);
             }
         }
     }
 
+    /// initialize a new bind group request 
     fn init_bind_group(&mut self, group_id: &String, bind_keys: Vec<ResourceID>) {
         if !self.layout_handler.is_ready(group_id) {
             return;
@@ -114,10 +116,7 @@ impl WgpuContext {
 
             self.writer_tracker.bind_groups.insert(group_id.clone());
             self.bindgroup_handler.request_new(group_id, &builder);
-        } 
-        // else {
-        //     panic!("One or more resources for bind group {} are missing!", group_id);
-        // }
+        }
     }
 
     /// Prepare the context for the next frame
@@ -150,7 +149,6 @@ impl WgpuContext {
 
     /// Create resources from a list of create commands
     pub fn create_resources(&mut self, create_cmds: &Vec<CreateCommand>) {
-        self.sync_handlers();
         for create_cmd in create_cmds {
             match create_cmd {
                 CreateCommand::Mesh { id, builder } => {
@@ -165,8 +163,8 @@ impl WgpuContext {
                     self.writer_tracker.bg_layouts.insert(id.clone());
                     self.layout_handler.request_new(&id, builder);
                 }
-                CreateCommand::RenderPipeline { id, builder } => {
-                    self.init_pipeline(&id, &mut builder.clone(), InitMode::Deferred);
+                CreateCommand::RenderPipeline { id, builder, mode } => {
+                    self.init_pipeline(&id, builder.clone(), mode.clone());
                 },
                 CreateCommand::BindGroup { id, bind_keys } => {
                     self.init_bind_group(&id, bind_keys.clone());

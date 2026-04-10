@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use crate::graphics::bind_group::ResourceID;
 
-/// Tracks resource requests, allowing the transient renders to optimize it's command generation
+/// Tracks resource requests, allowing the transient Renderer to optimize it's command generation
 #[derive(Clone, Debug)]
 pub struct ResourceTracker {
     pub bg_layouts: HashSet<String>,

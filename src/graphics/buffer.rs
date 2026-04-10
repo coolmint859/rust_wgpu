@@ -97,16 +97,14 @@ impl ResourceBuilder for BufferBuilder {
     type Output = Arc<wgpu::Buffer>;
 
     fn build(&self, device: Arc<wgpu::Device>) -> Result<Self::Output, String> {
+        println!("[Buffer] Created new buffer of type {:?} with label '{}'", self.usage, self.label);
         if let Some(data) = &self.data {
-            println!("Created new buffer of type {:?} with label '{}' with initial data", self.usage, self.label);
-            
             Ok(Arc::new(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some(&self.label),
                 contents: data,
                 usage: BufferBuilder::buffer_usage(&self.usage),
             })))
         } else {
-            println!("Created new buffer '{}' with no initial data.", self.label);
             // Otherwise, allocate empty space
             Ok(Arc::new(device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some(&self.label),

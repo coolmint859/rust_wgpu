@@ -1,13 +1,7 @@
 use std::{collections::HashSet, sync::Arc};
 
 use crate::graphics::{
-    bind_group::*, 
-    buffer::BufferBuilder, 
-    camera::Camera,
-    material::Material, 
-    mesh::{Mesh, MeshData}, 
-    render_pipeline::RenderPipelineBuilder,
-    tracker::ResourceTracker
+    bind_group::*, buffer::BufferBuilder, camera::Camera, init_state::InitMode, material::Material, mesh::{Mesh, MeshData}, render_pipeline::RenderPipelineBuilder, tracker::ResourceTracker
 };
 
 /// Commands for creating resources
@@ -16,7 +10,7 @@ use crate::graphics::{
 pub enum CreateCommand {
     BindGroupLayout{ id: String, builder: BindGroupLayoutBuilder },
     BindGroup{ id: String, bind_keys: Vec<ResourceID> }, // bind group builders are made by the context
-    RenderPipeline{ id: String, builder: RenderPipelineBuilder },
+    RenderPipeline{ id: String, builder: RenderPipelineBuilder, mode: InitMode },
     Mesh { id: u32, builder: Arc<MeshData> },
     Buffer { id: ResourceID, builder: BufferBuilder}
 }
@@ -131,15 +125,15 @@ impl Renderer {
             let key = ResourceID { group_id: camera_key.clone(), binding: 0};
             let builder_fn = || {
                 BufferBuilder::as_uniform(0)
+                    .with_label(&camera_key)
                     .with_data_from_struct(globals)
             };
 
             // only update if the buffer was already requested
-            if !self.request_buffer(&key, builder_fn) {
-                self.update_cmds.push(UpdateCommand { 
-                    key: key.clone(), data: BufferBuilder::to_padded_vec(globals),
-                });
-            }
+            self.request_buffer(&key, builder_fn);
+            self.update_cmds.push(UpdateCommand { 
+                key: key.clone(), data: BufferBuilder::to_padded_vec(globals),
+            });
 
             self.request_bind_group(&camera_key, vec![key]);
         }
@@ -152,14 +146,10 @@ impl Renderer {
         let mesh_key = &mesh.material.get_key();
         self.request_layout(mesh_key, || { mesh.material.get_layout_builder() });
 
-        if self.request_mesh(mesh) { return;} // GATE 1: mesh data must exist
-        if self.process_buffers(mesh) { return; } // GATE 2: // buffers must exist
-
-        // only request bind group/pipeline when all buffers have already been requested.
-        let uniform_keys: Vec<ResourceID> = mesh.get_requirements().iter().map(|(key, _)| { key.clone() }).collect();
-        let bind_group_requested = self.request_bind_group(&mesh.material.get_key(), uniform_keys);
-        let pipeline_requested = self.request_render_pipeline(mesh);
-        if bind_group_requested && pipeline_requested { return; } // GATE 3: pipeline/bind group must exist
+        self.request_mesh(mesh);
+        self.request_buffers(mesh);
+        self.request_render_pipeline(mesh);
+        self.request_bind_group(&mesh_key, mesh.get_resource_keys());
 
         // draw command issued only after bind group, pipeline, and buffers already were requested
         self.draw_cmds.push(
@@ -174,21 +164,17 @@ impl Renderer {
     }
 
     /// Process a mesh's buffers
-    fn process_buffers<M: Material>(&mut self, mesh: &mut Mesh<M>) -> bool {
+    fn request_buffers<M: Material>(&mut self, mesh: &mut Mesh<M>) {
         let most_recent_data = mesh.get_updated();
         let requirements = mesh.get_requirements();
 
-        let mut buffer_request_made = false;
         for (id, builder) in requirements {
-            buffer_request_made = self.request_buffer(&id, || { builder }) || buffer_request_made;
+            self.request_buffer(&id, || { builder });
         }
-        if buffer_request_made { return true; } // buffers must exist
 
         for (id, data) in most_recent_data {
             self.update_cmds.push(UpdateCommand { key: id, data });
         }
-
-        return false;
     }
 
     /// Request a layout command to be queued. Commands with the same key already queued will be skipped
@@ -203,51 +189,44 @@ impl Renderer {
     }
 
     /// request a create buffer command to be queued. Commands with the same key already queued will be skipped.
-    fn request_buffer(&mut self, key: &ResourceID, builder_fn: impl FnOnce() -> BufferBuilder) -> bool {
+    fn request_buffer(&mut self, key: &ResourceID, builder_fn: impl FnOnce() -> BufferBuilder) {
         if !self.tracker.as_mut().unwrap().buffers.contains(&key) {
             let builder = builder_fn();
             self.create_cmds.push(CreateCommand::Buffer { id: key.clone(), builder });
-            return true;
         }
-        return false;
     }
 
     /// request a create mesh command to be queued. Commands with the same key already queued will be skipped.
-    fn request_mesh<M: Material>(&mut self, mesh: &Mesh<M>) -> bool {
+    fn request_mesh<M: Material>(&mut self, mesh: &Mesh<M>) {
         let mesh_id = mesh.data.id();
         if !self.tracker.as_mut().unwrap().meshes.contains(&mesh_id) {
             self.create_cmds.push(CreateCommand::Mesh { 
                 id: mesh_id, 
                 builder: mesh.get_data_builder()
             });
-            return true;
         }
-        return false;
     }
 
     /// request a create render pipeline command to be queued. Commands with the same key already queued will be skipped.
-    fn request_render_pipeline<M: Material>(&mut self, mesh: &Mesh<M>) -> bool {
+    fn request_render_pipeline<M: Material>(&mut self, mesh: &Mesh<M>) {
         let key = mesh.material.get_key();
         if !self.tracker.as_mut().unwrap().pipelines.contains(&key) {
             self.create_cmds.push(CreateCommand::RenderPipeline { 
                 id: key, 
-                builder: mesh.get_pipeline_builder()
+                builder: mesh.get_pipeline_builder(),
+                mode: InitMode::Deferred
             });
-            return true;
         }
-        return false;
     }
 
     /// request a create bind group command to be queued. Commands with the same key already queued will be skipped.
-    fn request_bind_group(&mut self, key: &String, resource_keys: Vec<ResourceID>) -> bool {
+    fn request_bind_group(&mut self, key: &String, resource_keys: Vec<ResourceID>) {
         if !self.tracker.as_mut().unwrap().bind_groups.contains(key) {
             self.create_cmds.push(CreateCommand::BindGroup { 
                 id: key.clone(), 
                 bind_keys: resource_keys
             });
-            return true;
         }
-        return false;
     }
 
     /// Take ownership of the renderer's tracker. Should only be called after all commands are recorded.

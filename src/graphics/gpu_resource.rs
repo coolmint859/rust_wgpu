@@ -6,23 +6,12 @@ use std::{
     time::Instant
 };
 
-/// Represents the builder pattern for resources, constructing them asyncronously
+/// Represents the builder pattern for resources
 pub trait ResourceBuilder: Send + Clone + 'static {
     type Output: Send + 'static;
 
     /// Contruct the Output instance with the settings provided
     fn build(&self, device: Arc<wgpu::Device>) -> Result<Self::Output, String>;
-}
-
-/// Bundles related builders into one, allowing their outputs to be combined into a single struct T
-pub trait CompositeBuilder<B, T>: Send + Clone + 'static
-where
-    B: ResourceBuilder,
-    T: Send + 'static
-{
-
-    /// Contruct a T instance using the set builders
-    fn build(&self, device: Arc<wgpu::Device>) -> Result<T, String>;
 }
 
 /// Represents the state of a resource requested by the user of a registry instance.
@@ -112,7 +101,7 @@ where
     /// 
     /// Both the key and worker must implement the Send trait.
     pub fn get_or_request<B>(&mut self, key: &K, builder: &B) -> Option<&R> 
-    where B: ResourceBuilder<Output = R> + Clone
+    where B: ResourceBuilder<Output = R>
     {
         // resource does not exist in map
         if !self.resource_map.contains_key(&key) {
@@ -162,7 +151,7 @@ where
     /// 
     /// Returns a result object describing whether the the resource was successfuly created.
     pub fn request_wait<B>(&mut self, key: &K, builder: &B) -> Result<(), String>
-    where B: ResourceBuilder<Output = R> + Clone
+    where B: ResourceBuilder<Output = R>
     {
         if self.resource_map.contains_key(key) {
             return Ok(());
