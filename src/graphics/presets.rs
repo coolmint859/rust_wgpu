@@ -5,7 +5,7 @@ use crate::graphics::{
     bind_group::{BindGroupLayoutBuilder, LayoutVisibility}, 
     mesh::MeshData, 
     registry::ResourceRegistry, 
-    render_pipeline::RenderPipelineBuilder, 
+    render_pipeline::RenderPipelineTemplate, 
     vertex::PositionVertex,
 };
 
@@ -17,16 +17,15 @@ pub enum Pipeline {
 
 impl Pipeline {
     /// Returns a RenderPipelineBuilder corresponding to the pipeline preset variant
-    pub fn get(self) -> RenderPipelineBuilder {
+    pub fn get(self) -> RenderPipelineTemplate {
         return match self {
             Pipeline::ColoredSprite => {
-                RenderPipelineBuilder::new()
+                let path = "src/graphics/shaders/shader.wgsl";
+                
+                RenderPipelineTemplate::new::<PositionVertex>(path)
                     .with_label("colored-sprite")
-                    .with_shader("src/graphics/shaders/shader.wgsl")
-                    .with_vertex_layout::<PositionVertex>()
                     .with_bg_layout("camera-2d")
                     .with_bg_layout("colored-sprite")
-                    .with_label("colored-sprite")
             }
         }
     }

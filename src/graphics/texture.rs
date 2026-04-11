@@ -34,6 +34,7 @@ impl TextureBuilder {
 
 impl ResourceBuilder for TextureBuilder {
     type Output = wgpu::Texture;
+    type Context = wgpu::Device;
 
     fn build(&self, _device: Arc<wgpu::Device>) -> Result<Self::Output, String> {
         todo!();

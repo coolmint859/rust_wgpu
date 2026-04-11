@@ -118,6 +118,7 @@ impl BindGroupLayoutBuilder {
 
 impl ResourceBuilder for BindGroupLayoutBuilder {
     type Output = Arc<wgpu::BindGroupLayout>;
+    type Context = wgpu::Device;
 
     fn build(&self, device: Arc<wgpu::Device>) -> Result<Self::Output, String> {
         let mut group_entries: Vec<wgpu::BindGroupLayoutEntry> = Vec::new();
@@ -194,8 +195,9 @@ impl BindGroupBuilder {
 
 impl ResourceBuilder for BindGroupBuilder {
     type Output = wgpu::BindGroup;
+    type Context = wgpu::Device;
 
-    fn build(&self, device: Arc<wgpu::Device>) -> Result<Self::Output, String> {
+    fn build(&self, device: Arc<wgpu::Device>) -> Result<wgpu::BindGroup, String> {
         let group_entries: Vec<wgpu::BindGroupEntry> = self.entries.iter()
             .map(|entry| {
                 let bind_resource = match &entry.resource {

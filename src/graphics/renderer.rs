@@ -1,7 +1,14 @@
 use std::{collections::HashSet, sync::Arc};
 
 use crate::graphics::{
-    bind_group::*, buffer::BufferBuilder, camera::Camera, init_state::InitMode, material::Material, mesh::{Mesh, MeshData}, render_pipeline::RenderPipelineBuilder, tracker::ResourceTracker
+    bind_group::*, 
+    buffer::BufferBuilder, 
+    camera::Camera, 
+    init_state::InitMode, 
+    material::Material, 
+    mesh::{Mesh, MeshData}, 
+    render_pipeline::RenderPipelineTemplate, 
+    tracker::ResourceTracker
 };
 
 /// Commands for creating resources
@@ -10,7 +17,7 @@ use crate::graphics::{
 pub enum CreateCommand {
     BindGroupLayout{ id: String, builder: BindGroupLayoutBuilder },
     BindGroup{ id: String, bind_keys: Vec<ResourceID> }, // bind group builders are made by the context
-    RenderPipeline{ id: String, builder: RenderPipelineBuilder, mode: InitMode },
+    RenderPipeline{ template: RenderPipelineTemplate, mode: InitMode },
     Mesh { id: u32, builder: Arc<MeshData> },
     Buffer { id: ResourceID, builder: BufferBuilder}
 }
@@ -25,8 +32,7 @@ pub struct UpdateCommand {
 pub struct DrawCommand {
     pub id: u32,
     pub mat_id: String,
-    pub data: Arc<MeshData>,
-    pub rpip_builder: RenderPipelineBuilder,
+    pub rpip_id: RenderPipelineTemplate,
     pub z_depth: f32,
 }
 
@@ -156,8 +162,7 @@ impl Renderer {
             DrawCommand {
                 id: mesh.data.id(),
                 mat_id: mesh.material.get_key(),
-                data: Arc::clone(&mesh.data), 
-                rpip_builder: mesh.pipeline.clone(),
+                rpip_id: mesh.get_pipeline(),
                 z_depth: mesh.transform.position.z,
             }
         );
@@ -209,12 +214,10 @@ impl Renderer {
 
     /// request a create render pipeline command to be queued. Commands with the same key already queued will be skipped.
     fn request_render_pipeline<M: Material>(&mut self, mesh: &Mesh<M>) {
-        let key = mesh.material.get_key();
-        if !self.tracker.as_mut().unwrap().pipelines.contains(&key) {
-            self.create_cmds.push(CreateCommand::RenderPipeline { 
-                id: key, 
-                builder: mesh.get_pipeline_builder(),
-                mode: InitMode::Deferred
+        let template = mesh.get_pipeline();
+        if !self.tracker.as_mut().unwrap().pipelines.contains(&template) {
+            self.create_cmds.push(CreateCommand::RenderPipeline {
+                template, mode: InitMode::Deferred
             });
         }
     }

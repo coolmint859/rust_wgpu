@@ -95,8 +95,9 @@ impl BufferBuilder {
 
 impl ResourceBuilder for BufferBuilder {
     type Output = Arc<wgpu::Buffer>;
+    type Context = wgpu::Device;
 
-    fn build(&self, device: Arc<wgpu::Device>) -> Result<Self::Output, String> {
+    fn build(&self, device: Arc<wgpu::Device>) -> Result<Arc<wgpu::Buffer>, String> {
         println!("[Buffer] Created new buffer of type {:?} with label '{}'", self.usage, self.label);
         if let Some(data) = &self.data {
             Ok(Arc::new(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

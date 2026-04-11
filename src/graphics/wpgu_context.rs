@@ -3,7 +3,15 @@ use winit::window::Window;
 use std::sync::Arc;
 
 use crate::graphics::{
-    bind_group::{BindGroupBuilder, BindGroupResource, ResourceID}, core::WgpuCore, gpu_resource::{GpuResourceHandler, ResourceStatus}, init_state::{InitMode, StateInit}, mesh::MeshBuffer, presets::BindingLayout, render_pipeline::RenderPipelineBuilder, renderer::{CreateCommand, Renderer, UpdateCommand}, tracker::ResourceTracker
+    bind_group::{BindGroupBuilder, BindGroupResource, ResourceID}, 
+    core::WgpuCore, 
+    gpu_resource::{ResourceHandler, ResourceStatus, ResourceTemplate}, 
+    init_state::{InitMode, StateInit}, 
+    mesh::MeshBuffer, 
+    presets::BindingLayout, 
+    render_pipeline::RenderPipelineTemplate, 
+    renderer::{CreateCommand, Renderer, UpdateCommand}, 
+    tracker::ResourceTracker
 };
 
 /// group binding number for global uniforms
@@ -11,14 +19,22 @@ pub const GLOBAL_UNIFORMS: u32 = 0;
 /// group binding number for material uniforms
 pub const MATERIAL_UNIFORMS: u32 = 1;
 
+/// Houses the environment needed to construct rendering pipelines
+#[derive(Clone)]
+pub struct RenderPipelineContext {
+    pub device: Arc<wgpu::Device>,
+    pub layouts: Vec<Arc<wgpu::BindGroupLayout>>,
+    pub format: wgpu::TextureFormat
+}
+
 /// Represents the entire WebGPU rendering context
 pub struct WgpuContext {
     core: WgpuCore,
-    layout_handler: GpuResourceHandler<String, Arc<wgpu::BindGroupLayout>>,
-    mesh_handler: GpuResourceHandler<u32, MeshBuffer>,
-    bindgroup_handler: GpuResourceHandler<String, wgpu::BindGroup>,
-    pipeline_handler: GpuResourceHandler<String, wgpu::RenderPipeline>,
-    buffer_handler: GpuResourceHandler<ResourceID, Arc<wgpu::Buffer>>,
+    layout_handler: ResourceHandler<String, Arc<wgpu::BindGroupLayout>>,
+    mesh_handler: ResourceHandler<u32, MeshBuffer>,
+    bindgroup_handler: ResourceHandler<String, wgpu::BindGroup>,
+    pipeline_handler: ResourceHandler<RenderPipelineTemplate, wgpu::RenderPipeline>,
+    buffer_handler: ResourceHandler<ResourceID, Arc<wgpu::Buffer>>,
     writer_tracker: ResourceTracker,
 }
 
@@ -26,17 +42,17 @@ impl WgpuContext {
     pub async fn new(window: Arc<Window>) -> Self {
         let core = WgpuCore::new(window).await;
 
-        let mut layout_handler = GpuResourceHandler::new(Arc::clone(&core.device));
+        let mut layout_handler = ResourceHandler::new();
 
         let cs_builder = BindingLayout::ColoredSprite.get();
         let c2d_builder = BindingLayout::Camera2D.get();
-        let _ = layout_handler.request_wait(&"colored-sprite".to_string(), &cs_builder);
-        let _ = layout_handler.request_wait(&"camera-2d".to_string(), &c2d_builder);
+        let _ = layout_handler.request_wait(&"colored-sprite".to_string(), &cs_builder, Arc::clone(&core.device));
+        let _ = layout_handler.request_wait(&"camera-2d".to_string(), &c2d_builder, Arc::clone(&core.device));
 
-        let mesh_handler = GpuResourceHandler::new(Arc::clone(&core.device));
-        let bindgroup_handler = GpuResourceHandler::new(Arc::clone(&core.device));
-        let pipeline_handler = GpuResourceHandler::new(Arc::clone(&core.device));
-        let buffer_handler = GpuResourceHandler::new(Arc::clone(&core.device));
+        let mesh_handler = ResourceHandler::new();
+        let bindgroup_handler = ResourceHandler::new();
+        let pipeline_handler = ResourceHandler::new();
+        let buffer_handler = ResourceHandler::new();
         
         Self {
             core,
@@ -51,44 +67,57 @@ impl WgpuContext {
 
     /// initialize resources prior to rendering state
     pub fn init_resources(&mut self, init_state: StateInit) {
-        for rpip_cmd in init_state.get_rpip_cmds() {
-            self.init_pipeline(&rpip_cmd.key, rpip_cmd.builder, InitMode::Deferred);
-        }
+        // for rpip_cmd in init_state.get_rpip_cmds() {
+        //     self.init_pipeline(&rpip_cmd.key, rpip_cmd.builder, InitMode::Deferred);
+        // }
         
         for bgl_cmd in init_state.get_bgl_cmds() {
             match bgl_cmd.mode {
                 InitMode::Immediate => {
-                    let _ = self.layout_handler.request_wait(&bgl_cmd.key, &bgl_cmd.builder);
+                    let _ = self.layout_handler.request_wait(&bgl_cmd.key, &bgl_cmd.builder, Arc::clone(&self.core.device));
                 },
                 InitMode::Deferred => {
-                    self.layout_handler.request_new(&bgl_cmd.key, &bgl_cmd.builder);
+                    self.layout_handler.request_new(&bgl_cmd.key, &bgl_cmd.builder, Arc::clone(&self.core.device));
                 }
             }
         }
     }
 
     /// Initialize a new pipeline request
-    fn init_pipeline(&mut self, key: &String, mut builder: RenderPipelineBuilder, mode: InitMode) {
+    fn init_pipeline(&mut self, template: &RenderPipelineTemplate, mode: InitMode) {
         let mut layouts = Vec::new();
-
-        for id in &builder.get_layout_ids() {
+        for id in &template.get_layout_ids() {
             if let Some(layout) = self.layout_handler.get(&id) {
                 layouts.push(Arc::clone(layout));
             } else {
-                panic!("Required layout {} not found for pipeline {}", id, key);
+                panic!("Required layout {} not found for pipeline {}", id, template.label);
             }
         }
 
-        builder.set_format(self.core.config.format.clone());
-        builder.populate_bg_layouts(layouts);
+        let rpip_context = Arc::new(
+            RenderPipelineContext {
+                device: Arc::clone(&self.core.device),
+                layouts: layouts,
+                format: self.core.config.format.clone()
+            }
+        );
 
-        self.writer_tracker.pipelines.insert(key.clone());
+        self.writer_tracker.pipelines.insert(template.clone());
+        let builder = template.to_builder();
         match mode {
             InitMode::Immediate => {
-                let _ = self.pipeline_handler.request_wait(&key, &builder);
+                let _ = self.pipeline_handler.request_wait(
+                    &template, 
+                    &builder, 
+                    Arc::clone(&rpip_context)
+                );
             },
             InitMode::Deferred => {
-                self.pipeline_handler.request_new(&key, &builder);
+                self.pipeline_handler.request_new(
+                    &template, 
+                    &builder, 
+                    Arc::clone(&rpip_context)
+                );
             }
         }
     }
@@ -115,7 +144,7 @@ impl WgpuContext {
                 .with_resources(resource_pairs);
 
             self.writer_tracker.bind_groups.insert(group_id.clone());
-            self.bindgroup_handler.request_new(group_id, &builder);
+            self.bindgroup_handler.request_new(group_id, &builder, Arc::clone(&self.core.device));
         }
     }
 
@@ -153,18 +182,18 @@ impl WgpuContext {
             match create_cmd {
                 CreateCommand::Mesh { id, builder } => {
                     self.writer_tracker.meshes.insert(id.clone());
-                    self.mesh_handler.request_new(id, builder);
+                    self.mesh_handler.request_new(id, builder, Arc::clone(&self.core.device));
                 },
                 CreateCommand::Buffer { id, builder } => {
                     self.writer_tracker.buffers.insert(id.clone());
-                    self.buffer_handler.request_new(&id, builder);
+                    self.buffer_handler.request_new(&id, builder, Arc::clone(&self.core.device));
                 },
                 CreateCommand::BindGroupLayout { id, builder } => {
                     self.writer_tracker.bg_layouts.insert(id.clone());
-                    self.layout_handler.request_new(&id, builder);
+                    self.layout_handler.request_new(&id, builder, Arc::clone(&self.core.device));
                 }
-                CreateCommand::RenderPipeline { id, builder, mode } => {
-                    self.init_pipeline(&id, builder.clone(), mode.clone());
+                CreateCommand::RenderPipeline { template, mode } => {
+                    self.init_pipeline(template, mode.clone()); // template IS the key
                 },
                 CreateCommand::BindGroup { id, bind_keys } => {
                     self.init_bind_group(&id, bind_keys.clone());
@@ -189,10 +218,10 @@ impl WgpuContext {
             return Ok(());
         }
 
-        // verify camera existance
+        // verify camera existence
         let camera_group = match self.bindgroup_handler.get(&renderer.get_camera_key()) {
             Some(data) => data,
-            None => return Ok(()) // if the camera buffer is not ready, we can't draw anything
+            None => return Ok(()) // if the camera bind group is not ready, we can't draw anything
         };
 
         // prepare output and render pass
@@ -200,9 +229,8 @@ impl WgpuContext {
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         let mut encoder = self.core.device.create_command_encoder(
-            &wgpu::CommandEncoderDescriptor {
-                label: Some("Render Encoder"),
-            });
+            &wgpu::CommandEncoderDescriptor { label: Some("Render Encoder") }
+        );
 
         {
             let mut render_pass = encoder.begin_render_pass(
@@ -237,25 +265,9 @@ impl WgpuContext {
 
     /// draw meshes to the current texture using the provided render pass
     fn draw_meshes(&mut self, renderer: &Renderer, render_pass: &mut wgpu::RenderPass) {
-        let mut missing_meshes: Vec<u32> = Vec::new();
-        let mut missing_pipelines: Vec<String> = Vec::new();
-
         for draw_cmd in renderer.draw_cmds() {
-            if self.mesh_handler.status_of(&draw_cmd.id).is_none() {
-                missing_meshes.push(draw_cmd.id);
-            }
-            if self.pipeline_handler.status_of(&draw_cmd.mat_id).is_none() {
-                missing_pipelines.push(draw_cmd.mat_id.clone());
-            }
-        }
-
-        for draw_cmd in renderer.draw_cmds() {
-            if missing_meshes.contains(&draw_cmd.id) || missing_pipelines.contains(&draw_cmd.mat_id) {
-                continue;
-            }
-
             let m_status = self.mesh_handler.status_of(&draw_cmd.id);
-            let p_status = self.pipeline_handler.status_of(&draw_cmd.mat_id);
+            let p_status = self.pipeline_handler.status_of(&draw_cmd.rpip_id);
             let u_status = self.bindgroup_handler.status_of(&draw_cmd.mat_id);
 
             if let (Some(ResourceStatus::Ready(mesh)), 

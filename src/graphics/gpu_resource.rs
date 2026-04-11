@@ -6,12 +6,22 @@ use std::{
     time::Instant
 };
 
+/// A high level data struct that used to generate builder objects.
+pub trait ResourceTemplate: Hash + Send + Sync + Eq + PartialEq + 'static {
+    /// The specific builder struct that this template generates
+    type Builder: ResourceBuilder;
+
+    /// Uses the configured settings of the template and converts it into a builder instance
+    fn to_builder(&self) -> Self::Builder;
+}
+
 /// Represents the builder pattern for resources
 pub trait ResourceBuilder: Send + Clone + 'static {
     type Output: Send + 'static;
+    type Context: Send + Sync + 'static;
 
     /// Contruct the Output instance with the settings provided
-    fn build(&self, device: Arc<wgpu::Device>) -> Result<Self::Output, String>;
+    fn build(&self, context: Arc<Self::Context>) -> Result<Self::Output, String>;
 }
 
 /// Represents the state of a resource requested by the user of a registry instance.
@@ -52,15 +62,14 @@ impl<R> ResourceStatus<R> {
     }
 }
 
-/// Manages and stores gpu memory resources with concurrent creation through builder objects.
+/// Manages and stores any memory resource with concurrent creation through builder objects.
 /// 
 /// K: The key type to store resouces with
 /// 
 /// R: the resource type that will be stored
 /// 
 /// TODO: force_request() and update() with prior thread cancelation (use thread JoinHandle)
-pub struct GpuResourceHandler<K, R> {
-    device: Arc<wgpu::Device>,
+pub struct ResourceHandler<K, R> {
     resource_map: HashMap<K, ResourceStatus<R>>,
 
     tx: mpsc::Sender<(K, Result<R, String>)>,
@@ -69,16 +78,15 @@ pub struct GpuResourceHandler<K, R> {
     rsc_timeout: u64, // time before a worker thread is considered 'dead' by the main thread
 }
 
-impl<K, R> GpuResourceHandler<K, R> 
+impl<K, R> ResourceHandler<K, R> 
 where
     K: Hash + Eq + PartialEq + Clone + Send + 'static,
     R: Send + 'static,
 {
     /// Create a new resource handler.
-    pub fn new(device: Arc<wgpu::Device>) -> Self {
+    pub fn new() -> Self {
         let (tx, rx) = mpsc::channel();
         Self {
-            device,
             resource_map: HashMap::new(),
             tx, rx,
             rsc_timeout: 5,
@@ -99,20 +107,19 @@ where
     /// 
     /// builder: B, Any object that implements the ResourceBuilder trait
     /// 
-    /// Both the key and worker must implement the Send trait.
-    pub fn get_or_request<B>(&mut self, key: &K, builder: &B) -> Option<&R> 
-    where B: ResourceBuilder<Output = R>
+    /// context: C, an instance of the context type specfied by the builder B
+    pub fn get_or_request<B, C>(&mut self, key: &K, builder: &B, context: Arc<C>) -> Option<&R> 
+    where 
+        B: ResourceBuilder<Output = R, Context = C>,
+        C: Send + Sync + 'static
     {
         // resource does not exist in map
-        if !self.resource_map.contains_key(&key) {
-            self.request_new(&key, builder);
+        if !self.resource_map.contains_key(key) {
+            self.request_new(key, builder, context);
             return None;
         }
-        
-        // resource exists in map but isn't ready yet
-        if !self.is_ready(&key) { return None; }
 
-        // resource is in map and is ready
+        // resource is in map, but may not be ready
         self.get(&key)
     }
 
@@ -121,19 +128,20 @@ where
     /// 
     /// key: K, a handle to retrieve the resource when available
     /// 
-    /// builder: B, Any object that implements the ResourceBuilder trait,
-    ///  whose types Key and Output match this handlers K and R types, respectively
+    /// builder: B, Any object that implements the ResourceBuilder trait with the matching output 
     /// 
-    /// Both the key and worker must implement the Send trait.
-    pub fn request_new<B>(&mut self, key: &K, builder: &B) 
-    where B: ResourceBuilder<Output = R>
+    /// context: C, an instance of the context type specfied by the builder B
+    pub fn request_new<B, C>(&mut self, key: &K, builder: &B, context: Arc<C>) 
+    where 
+        B: ResourceBuilder<Output = R, Context = C>,
+        C: Send + Sync + 'static
     {
         let key_cpy = key.clone();
-        if self.resource_map.contains_key(&key) {
+        if self.resource_map.contains_key(&key_cpy) {
             return;
         }
 
-        let device_cpy = Arc::clone(&self.device);
+        let context_cpy = context.clone();
         let builder_cpy = builder.clone();
 
         let status = ResourceStatus::Pending(Instant::now());
@@ -142,7 +150,7 @@ where
         let tx = self.tx.clone();
 
         tokio::task::spawn(async move {
-            let result = builder_cpy.build(device_cpy); 
+            let result = builder_cpy.build(context_cpy); 
             let _ = tx.send((key_cpy, result));
         });
     }
@@ -150,15 +158,17 @@ where
     /// Request a new resource and wait for it's completion, blocking the calling thread until complete.
     /// 
     /// Returns a result object describing whether the the resource was successfuly created.
-    pub fn request_wait<B>(&mut self, key: &K, builder: &B) -> Result<(), String>
-    where B: ResourceBuilder<Output = R>
+    pub fn request_wait<B, C>(&mut self, key: &K, builder: &B, context: Arc<C>) -> Result<(), String>
+    where 
+        B: ResourceBuilder<Output = R, Context = C>,
+        C: Send + Sync + 'static
     {
         if self.resource_map.contains_key(key) {
             return Ok(());
         }
         
         // build is a blocking call
-        match builder.build(Arc::clone(&self.device)) {
+        match builder.build(context.clone()) {
             Ok(resource) => {
                 self.store(key, resource);
                 Ok(())
@@ -248,15 +258,16 @@ where
         self.resource_map.contains_key(key)
     }
 
+    /// Get a vector of known resource keys mapped to their resource status' in the form of a tuple. Useful for debugging purposes.
     pub fn status_of_all(&self) -> Vec<(&K, String)> {
         self.resource_map.iter().map(|(key, resource)| {
             let status = match resource {
                 ResourceStatus::Failed(_) => "FAILED",
                 ResourceStatus::Pending(_) => "PENDING",
                 ResourceStatus::Ready(_) => "READY",
-            };
+            }.to_string();
 
-            (key, status.to_string())
+            (key, status)
         }).collect()
     }
 }

@@ -1,15 +1,14 @@
 use std::sync::Arc;
 use std::sync::atomic::{ AtomicU32, Ordering };
 
-use crate::graphics::bind_group::ResourceID;
-use crate::graphics::buffer::BufferBuilder;
-use crate::graphics::gpu_resource::ResourceBuilder;
-
 use super::{
     material::Material,
-    render_pipeline::RenderPipelineBuilder,
     transform::Transform,
     vertex::PositionVertex,
+    render_pipeline::RenderPipelineTemplate,
+    gpu_resource::ResourceBuilder,
+    buffer::BufferBuilder,
+    bind_group::ResourceID
 };
 
 /// represents a mesh as it lives on the gpu during rendering, most importantly it's buffers
@@ -61,6 +60,7 @@ impl MeshData {
 /// Allows us to treat the mesh data as if it was a regular resource builder
 impl ResourceBuilder for Arc<MeshData> {
     type Output = MeshBuffer;
+    type Context = wgpu::Device;
 
     fn build(&self, device: Arc<wgpu::Device>) -> Result<MeshBuffer, String> {
         let vertex_data: Vec<u8> = bytemuck::cast_slice(&self.vertex_data).to_vec();
@@ -90,14 +90,14 @@ pub struct Mesh<M: Material> {
     pub transform: Transform,
     pub data: Arc<MeshData>,
     pub material: M,
-    pub pipeline: RenderPipelineBuilder,
+    pub pipeline: RenderPipelineTemplate,
 }
 
 impl<M: Material> Mesh<M> {
     pub fn new(
         data: Arc<MeshData>, 
         material: M, 
-        pipeline: RenderPipelineBuilder
+        pipeline: RenderPipelineTemplate
     ) -> Self {
         Self {
            transform: Transform::default(),
@@ -158,7 +158,7 @@ impl<M: Material> Mesh<M> {
         Arc::clone(&self.data)
     }
 
-    pub fn get_pipeline_builder(&self) -> RenderPipelineBuilder {
+    pub fn get_pipeline(&self) -> RenderPipelineTemplate {
         self.pipeline.clone()
     }
 }
