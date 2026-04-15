@@ -1,15 +1,17 @@
+#![allow(dead_code)]
 use std::collections::HashSet;
 
-use crate::graphics::{bind_group::ResourceID, render_pipeline::RenderPipelineTemplate};
+use crate::graphics::{bind_group::BindGroupLayoutBuilder, render_pipeline::RenderPipelineBuilder};
 
 /// Tracks resource requests, allowing the transient Renderer to optimize it's command generation
 #[derive(Clone, Debug)]
 pub struct ResourceTracker {
-    pub bg_layouts: HashSet<String>,
+    pub bg_layouts: HashSet<BindGroupLayoutBuilder>,
     pub bind_groups: HashSet<String>,
-    pub buffers: HashSet<ResourceID>,
-    pub pipelines: HashSet<RenderPipelineTemplate>,
-    pub meshes: HashSet<u32>
+    pub buffers: HashSet<String>,
+    pub pipelines: HashSet<RenderPipelineBuilder>,
+    pub meshes: HashSet<u32>,
+    pub textures: HashSet<String>,
 }
 
 impl ResourceTracker {
@@ -20,6 +22,7 @@ impl ResourceTracker {
             buffers: HashSet::new(),
             pipelines: HashSet::new(),
             meshes: HashSet::new(),
+            textures: HashSet::new()
         }
     }
 

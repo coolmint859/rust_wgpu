@@ -1,38 +1,40 @@
+#![allow(dead_code)]
 use std::{collections::HashSet, sync::Arc};
 
 use crate::graphics::{
-    bind_group::*, 
-    buffer::BufferBuilder, 
-    camera::Camera, 
-    init_state::InitMode, 
-    material::Material, 
-    mesh::{Mesh, MeshData}, 
-    render_pipeline::RenderPipelineTemplate, 
-    tracker::ResourceTracker
+    bind_group::*, buffer::BufferBuilder, camera::Camera, init_state::InitMode, material::{Material, UniformBuilder}, mesh::{Mesh, MeshData}, presets::{BindingLayout, TextureSampler}, render_pipeline::RenderPipelineBuilder, texture::TextureBuilder, tracker::ResourceTracker
 };
 
-/// Commands for creating resources
-/// 
+/// Commands used for creating resources
 #[derive(Clone, Debug)]
 pub enum CreateCommand {
-    BindGroupLayout{ id: String, builder: BindGroupLayoutBuilder },
-    BindGroup{ id: String, bind_keys: Vec<ResourceID> }, // bind group builders are made by the context
-    RenderPipeline{ template: RenderPipelineTemplate, mode: InitMode },
+    BindGroupLayout{ builder: BindGroupLayoutBuilder },
+    BindGroup{ id: String, layout_id: BindGroupLayoutBuilder, bind_keys: Vec<(String, u32)> }, // bind group builders are made by the context
+    RenderPipeline{ builder: RenderPipelineBuilder, mode: InitMode },
     Mesh { id: u32, builder: Arc<MeshData> },
-    Buffer { id: ResourceID, builder: BufferBuilder}
+    Buffer { id: String, builder: BufferBuilder },
+    Texture { id: String, builder: TextureBuilder, sampler_id: TextureSampler }
 }
 
+/// Command used to update uniform buffers
 #[derive(Clone, Debug)]
 pub struct UpdateCommand {
-    pub key: ResourceID, 
+    pub key: String, 
     pub data: Vec<u8> 
 }
 
+/// Command used to draw a single instance of a mesh to the current texture
 #[derive(Clone, Debug)]
 pub struct DrawCommand {
+    /// used to get the vertex/index buffers
     pub id: u32,
-    pub mat_id: String,
-    pub rpip_id: RenderPipelineTemplate,
+    /// used to get the mesh's bind group
+    pub mesh_group_id: String,
+    /// used to get the material's bind group
+    pub mat_group_id: String,
+    /// used to get the render pipeline
+    pub rpip_id: RenderPipelineBuilder,
+    /// used for z-ordering
     pub z_depth: f32,
 }
 
@@ -50,16 +52,19 @@ pub struct GlobalUniforms {
 /// This acts as a translator for high level constructs into low level data 
 /// for the WgpuContext during a single frame.
 pub struct Renderer {
-    submitted_layouts: HashSet<String>,
+    submitted_layouts: HashSet<BindGroupLayoutBuilder>,
 
+    // commands
     create_cmds: Vec<CreateCommand>,
     draw_cmds: Vec<DrawCommand>,
     update_cmds: Vec<UpdateCommand>,
 
+    // general frame settings
     clear_color: wgpu::Color,
     camera_key: String,
     elapsed_time: f32,
 
+    // tracker for preventing unnecessary command generation
     tracker: Option<ResourceTracker>,
 }
 
@@ -116,88 +121,117 @@ impl Renderer {
 
     /// set the camera for the current frame
     pub fn set_camera<C: Camera>(&mut self, camera: &mut C) {
+        camera.update();
+
         let camera_key = camera.get_layout_id();
-        self.request_layout(&camera_key, || {camera.get_layout_builder()});
+        self.request_layout(camera.get_layout_builder());
+        self.request_global_uniforms(camera);
+        self.request_bind_group(&camera_key, camera.get_layout_builder(), vec![(camera_key.clone(), 0)]);
 
-        if camera.is_dirty() {
-            camera.update_view_proj_mat();
+        self.camera_key = camera_key;
+    }
 
-            let globals = GlobalUniforms {
-                view_proj: camera.get_view_proj_mat().to_cols_array(),
-                cam_pos: camera.get_position().to_array(),
-                elapsed_time: self.elapsed_time,
-            };
+    /// request/create global uniform data from the current camera
+    fn request_global_uniforms<C: Camera>(&mut self, camera: &mut C) {
+        let camera_key = camera.get_layout_id();
 
-            let key = ResourceID { group_id: camera_key.clone(), binding: 0};
-            let builder_fn = || {
-                BufferBuilder::as_uniform(0)
-                    .with_label(&camera_key)
-                    .with_data_from_struct(globals)
-            };
+        let globals = GlobalUniforms {
+            view_proj: camera.get_view_proj_mat().to_cols_array(),
+            cam_pos: camera.get_position().to_array(),
+            elapsed_time: self.elapsed_time,
+        };
 
-            // only update if the buffer was already requested
-            self.request_buffer(&key, builder_fn);
+        let key = camera_key.clone();
+        let builder_fn = || {
+            BufferBuilder::as_uniform(0)
+                .with_label(&camera_key)
+                .with_data_from_struct(globals)
+        };
+
+        // if a buffer wasn't just requested, issue an update command
+        if !self.request_buffer(&key, builder_fn) {
             self.update_cmds.push(UpdateCommand { 
                 key: key.clone(), data: BufferBuilder::to_padded_vec(globals),
             });
-
-            self.request_bind_group(&camera_key, vec![key]);
         }
-
-        self.camera_key = camera.get_layout_id();
     }
 
-    /// Draw an object to the current texture
+    /// Draw an object using the given transform and material to the current texture
+    /// 
+    /// TODO: untangle layout key from bind group key to allow similar materials to share layouts
     pub fn draw<M: Material>(&mut self, mesh: &mut Mesh<M>) {
-        let mesh_key = &mesh.material.get_key();
-        self.request_layout(mesh_key, || { mesh.material.get_layout_builder() });
+        let (mesh_key, mat_key) = mesh.get_uniform_keys();
+
+        let mat_layout_id = mesh.material.get_layout_builder();
+        let mesh_layout_id = BindingLayout::Instance.get();
+        self.request_layout(mat_layout_id.clone());
+        self.request_layout(mesh_layout_id.clone());
 
         self.request_mesh(mesh);
-        self.request_buffers(mesh);
-        self.request_render_pipeline(mesh);
-        self.request_bind_group(&mesh_key, mesh.get_resource_keys());
+        self.request_uniforms(mesh);
+        self.request_render_pipeline(mesh.get_rpip_builder());
 
-        // draw command issued only after bind group, pipeline, and buffers already were requested
+        self.request_bind_group(&mat_key, mat_layout_id, mesh.get_material_requirements());
+        self.request_bind_group(&mesh_key, mesh_layout_id, vec![(mesh_key.clone(), 0)]);
+
         self.draw_cmds.push(
             DrawCommand {
                 id: mesh.data.id(),
-                mat_id: mesh.material.get_key(),
-                rpip_id: mesh.get_pipeline(),
+                mesh_group_id: mesh_key,
+                mat_group_id: mat_key,
+                rpip_id: mesh.get_rpip_builder(),
                 z_depth: mesh.transform.position.z,
             }
         );
     }
 
-    /// Process a mesh's buffers
-    fn request_buffers<M: Material>(&mut self, mesh: &mut Mesh<M>) {
+    /// Process a mesh and it's associated material's uniforms
+    /// 
+    /// TODO: Refactor to only issue an update command if a buffer already exists
+    fn request_uniforms<M: Material>(&mut self, mesh: &mut Mesh<M>) {
         let most_recent_data = mesh.get_updated();
-        let requirements = mesh.get_requirements();
+        let uniforms = mesh.get_uniforms();
 
-        for (id, builder) in requirements {
-            self.request_buffer(&id, || { builder });
+        for (key, u_builder_enum) in uniforms {
+            match u_builder_enum {
+                UniformBuilder::Buffer(builder) => {
+                    self.request_buffer(&key, || builder);
+                }
+                UniformBuilder::Texture(builder, sampler_id) => {
+                    self.request_texture(&key, sampler_id, builder);
+                }
+            }
         }
 
-        for (id, data) in most_recent_data {
-            self.update_cmds.push(UpdateCommand { key: id, data });
+        for (key, data) in most_recent_data {
+            self.update_cmds.push(UpdateCommand { key, data });
         }
     }
 
     /// Request a layout command to be queued. Commands with the same key already queued will be skipped
-    fn request_layout(&mut self, key: &String, builder_fn: impl FnOnce() -> BindGroupLayoutBuilder) {
-        let not_submitted = self.submitted_layouts.insert(key.clone());
-        let not_requested = !self.tracker.as_mut().unwrap().bg_layouts.contains(key); 
+    fn request_layout(&mut self, builder: BindGroupLayoutBuilder) {
+        let not_submitted = self.submitted_layouts.insert(builder.clone());
+        let not_requested = !self.tracker.as_mut().unwrap().bg_layouts.contains(&builder); 
         
         if not_submitted && not_requested {
-            let builder = builder_fn();
-            self.create_cmds.push(CreateCommand::BindGroupLayout { id: key.clone(), builder });
+            self.create_cmds.push(CreateCommand::BindGroupLayout { builder });
         }
     }
 
     /// request a create buffer command to be queued. Commands with the same key already queued will be skipped.
-    fn request_buffer(&mut self, key: &ResourceID, builder_fn: impl FnOnce() -> BufferBuilder) {
-        if !self.tracker.as_mut().unwrap().buffers.contains(&key) {
+    fn request_buffer(&mut self, key: &String, builder_fn: impl FnOnce() -> BufferBuilder) -> bool {
+        if !self.tracker.as_mut().unwrap().buffers.contains(key) {
             let builder = builder_fn();
             self.create_cmds.push(CreateCommand::Buffer { id: key.clone(), builder });
+            return true;
+        }
+        return false
+    }
+
+    /// request a create buffer command to be queued. Commands with the same key already queued will be skipped.
+    fn request_texture(&mut self, key: &String, sampler_id: TextureSampler, builder: TextureBuilder) {
+        if !self.tracker.as_mut().unwrap().textures.contains(key) {
+            self.create_cmds.push(CreateCommand::Texture { id: key.clone(), builder, sampler_id });
         }
     }
 
@@ -213,21 +247,21 @@ impl Renderer {
     }
 
     /// request a create render pipeline command to be queued. Commands with the same key already queued will be skipped.
-    fn request_render_pipeline<M: Material>(&mut self, mesh: &Mesh<M>) {
-        let template = mesh.get_pipeline();
-        if !self.tracker.as_mut().unwrap().pipelines.contains(&template) {
+    fn request_render_pipeline(&mut self, pipeline: RenderPipelineBuilder) {
+        if !self.tracker.as_mut().unwrap().pipelines.contains(&pipeline) {
             self.create_cmds.push(CreateCommand::RenderPipeline {
-                template, mode: InitMode::Deferred
+                builder: pipeline, mode: InitMode::Deferred
             });
         }
     }
 
     /// request a create bind group command to be queued. Commands with the same key already queued will be skipped.
-    fn request_bind_group(&mut self, key: &String, resource_keys: Vec<ResourceID>) {
+    fn request_bind_group(&mut self, key: &String, layout_id: BindGroupLayoutBuilder, bind_keys: Vec<(String, u32)>) {
         if !self.tracker.as_mut().unwrap().bind_groups.contains(key) {
             self.create_cmds.push(CreateCommand::BindGroup { 
-                id: key.clone(), 
-                bind_keys: resource_keys
+                id: key.clone(),
+                layout_id,
+                bind_keys
             });
         }
     }

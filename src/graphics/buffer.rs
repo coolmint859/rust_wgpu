@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 use std::sync::Arc;
-use crate::graphics::gpu_resource::ResourceBuilder;
+use crate::graphics::handler::ResourceBuilder;
 use wgpu::util::DeviceExt;
 
 #[derive(Clone, Debug)]

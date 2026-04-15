@@ -5,7 +5,7 @@ pub struct WgpuCore {
     pub window: Arc<Window>,
     pub surface: wgpu::Surface<'static>,
     pub device: Arc<wgpu::Device>,
-    pub queue: wgpu::Queue,
+    pub queue: Arc<wgpu::Queue>,
     pub config: wgpu::SurfaceConfiguration,
 
     is_surface_configured: bool,
@@ -41,6 +41,7 @@ impl WgpuCore {
             }).await
             .unwrap();
         let device = Arc::new(device);
+        let queue = Arc::new(queue);
 
         let surface_caps = surface.get_capabilities(&adapter);
         let surface_format = surface_caps.formats.iter()

@@ -55,6 +55,24 @@ impl Transform {
         self.is_dirty.set(true);
     }
 
+    /// Set the x value for this transform relative to the world origin
+    pub fn set_x(&mut self, x: f32) {
+        self.position.x = x;
+        self.is_dirty.set(true);
+    }
+
+    /// Set the y value for this transform relative to the world origin
+    pub fn set_y(&mut self, y: f32) {
+        self.position.y = y;
+        self.is_dirty.set(true);
+    }
+
+    /// Set the z value for this transform relative to the world origin
+    pub fn set_z(&mut self, z: f32) {
+        self.position.z = z;
+        self.is_dirty.set(true);
+    }
+
     /// rotate from current orientation
     pub fn rotate(&mut self, rotation: Quat) {
         self.rotation *= rotation;
@@ -86,6 +104,12 @@ impl Transform {
         self.is_dirty.set(true);
     }
 
+    /// set the scale of this transform
+    pub fn scale(&mut self, scale: glam::Vec3) {
+        self.dimensions = scale;
+        self.is_dirty.set(true);
+    }
+
     /// apply this transform to a vector
     pub fn apply_to(&self, vector:Vec3) -> Vec3 {
         let vec4 = Vec4::new(vector.x, vector.y, vector.z, 1.0);
@@ -99,7 +123,7 @@ impl Transform {
     }
 
     /// Update the world matrix from the currently set position, rotation, and scale
-    pub fn update_world_mat(&mut self) {
+    pub fn update(&mut self) {
         if self.is_dirty() {
             self.world_mat = Mat4::from_scale_rotation_translation(self.dimensions, self.rotation, self.position);
             self.is_dirty.set(false);

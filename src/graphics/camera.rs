@@ -27,7 +27,7 @@ pub trait Camera {
     fn set_aspect_ratio(&mut self, new_aspect: f32);
 
     /// Trigger the camera to update it's view-projection matrix
-    fn update_view_proj_mat(&mut self);
+    fn update(&mut self);
 }
 
 
@@ -78,24 +78,26 @@ impl Camera for Camera2D {
     }
 
     /// update the camera's view-projection matrix
-    fn update_view_proj_mat(&mut self) {
-        self.transform.update_world_mat();
-        let view_mat = self.transform.world_matrix().inverse();
+    fn update(&mut self) {
+        if self.is_dirty() {
+            self.transform.update();
+            let view_mat = self.transform.world_matrix().inverse();
 
-        let half_width = self.aspect / self.zoom;
-        let half_height = 1.0 / self.zoom;
+            let half_width = self.aspect / self.zoom;
+            let half_height = 1.0 / self.zoom;
 
-        let proj_mat = glam::Mat4::orthographic_lh(
-            -half_width, 
-            half_width, 
-            -half_height, 
-            half_height, 
-            -1.0, 
-            1.0
-        );
+            let proj_mat = glam::Mat4::orthographic_lh(
+                -half_width, 
+                half_width, 
+                -half_height, 
+                half_height, 
+                -1.0, 
+                1.0
+            );
 
-        self.view_proj_mat = proj_mat * view_mat;
-        self.is_dirty.set(false);
+            self.view_proj_mat = proj_mat * view_mat;
+            self.is_dirty.set(false);
+        }
     }
 }
 

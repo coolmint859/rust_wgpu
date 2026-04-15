@@ -6,15 +6,6 @@ use std::{
     time::Instant
 };
 
-/// A high level data struct that used to generate builder objects.
-pub trait ResourceTemplate: Hash + Send + Sync + Eq + PartialEq + 'static {
-    /// The specific builder struct that this template generates
-    type Builder: ResourceBuilder;
-
-    /// Uses the configured settings of the template and converts it into a builder instance
-    fn to_builder(&self) -> Self::Builder;
-}
-
 /// Represents the builder pattern for resources
 pub trait ResourceBuilder: Send + Clone + 'static {
     type Output: Send + 'static;
@@ -24,7 +15,7 @@ pub trait ResourceBuilder: Send + Clone + 'static {
     fn build(&self, context: Arc<Self::Context>) -> Result<Self::Output, String>;
 }
 
-/// Represents the state of a resource requested by the user of a registry instance.
+/// Represents the state of a resource requested by the user of a handler instance.
 pub enum ResourceStatus<R> {
     /// Resource has been requested but is not yet ready
     Pending(Instant),
@@ -63,6 +54,7 @@ impl<R> ResourceStatus<R> {
 }
 
 /// Manages and stores any memory resource with concurrent creation through builder objects.
+/// Allows any builder object as long as the output type matches the stored type.
 /// 
 /// K: The key type to store resouces with
 /// 
@@ -75,7 +67,7 @@ pub struct ResourceHandler<K, R> {
     tx: mpsc::Sender<(K, Result<R, String>)>,
     rx: mpsc::Receiver<(K, Result<R, String>)>,
 
-    rsc_timeout: u64, // time before a worker thread is considered 'dead' by the main thread
+    timeout: u64, // time before a worker thread is considered 'dead' by the main thread
 }
 
 impl<K, R> ResourceHandler<K, R> 
@@ -89,19 +81,19 @@ where
         Self {
             resource_map: HashMap::new(),
             tx, rx,
-            rsc_timeout: 5,
+            timeout: 5,
         }
     }
 
-    /// Set the resource timeout for worker threads, in seconds.
+    /// Set the resource timeout for worker threads, in seconds. The default is 5.
     /// 
     /// This is the amount of time before a thread is considered 'dead' and is told to stop executing.
-    pub fn set_timeout(&mut self,  rsc_timeout: u64) {
-        self.rsc_timeout = rsc_timeout;
+    pub fn set_timeout(&mut self,  timeout: u64) {
+        self.timeout = timeout;
     }
 
     /// Retrieve a resource if is is ready. If the resource has not yet been requested, 
-    /// a worker thread tracks its creation  via a builder object. Otherwise None is returned.
+    /// a worker thread tracks its creation via a builder object, and None is returned.
     /// 
     /// key: K, a handle to retrieve the resource when available
     /// 
@@ -202,7 +194,7 @@ where
         }
 
         let now = Instant::now();
-        let max_wait = std::time::Duration::from_secs(self.rsc_timeout);
+        let max_wait = std::time::Duration::from_secs(self.timeout);
 
         // check for stalled/lost worker threads
         for status in self.resource_map.values_mut() {

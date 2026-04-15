@@ -1,29 +1,41 @@
+#![allow(dead_code)]
 use std::cell::Cell;
 
-use crate::graphics::{bind_group::{BindGroupLayoutBuilder, LayoutVisibility}, buffer::BufferBuilder};
+use crate::graphics::{bind_group::BindGroupLayoutBuilder, buffer::BufferBuilder, presets::{BindingLayout, TextureSampler}, texture::TextureBuilder};
+
+/// Matches against 
+pub enum UniformBuilder {
+    /// builder that creates a Uniform Buffer
+    Buffer(BufferBuilder),
+    /// builder that creates a Uniform Texture with a Sampler
+    Texture(TextureBuilder, TextureSampler)
+}
 
 /// Represents a material, which defines how a mesh should look when rendered
 pub trait Material: Clone {
     /// Get the key to this material
-    fn get_key(&self) -> String;
+    fn get_group_key(&self, mesh_id: u32) -> String;
 
-    /// Update the internal state of the material, marking it 'clean'
-    fn update_state(&mut self);
+    /// Get the key-value pairs for buffer data from this material
+    fn get_buffers_updated(&self, mesh_id: u32) -> Vec<(String, Vec<u8>)>;
 
-    /// Get the material data as a list of uniform entries - updates the internal dirty flag to false
-    fn get_data(&self, model_mat: glam::Mat4) -> Vec<u8>;
+    /// Get the builders for this material mapped by a key (buffers are mesh-specific)
+    fn get_uniform_builders(&self, mesh_id: u32) -> Vec<(String, UniformBuilder)>;
 
     /// Get the bind group layout builder for this material.
     fn get_layout_builder(&self) -> BindGroupLayoutBuilder;
 
-    /// Check if this material has changed since the last uniform request
-    fn is_dirty(&self) -> bool;
+    /// Get the requirements for this mesh as a vector of key-bind slot pairs
+    fn get_requirements(&self, mesh_id: u32) -> Vec<(String, u32)>;
+
+    /// Update this material
+    fn update(&mut self);
 }
 
+/// The structure of the colored sprite uniform data as it lives in the shader
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ColoredSpriteUniform {
-    pub model_matrix: [f32; 16],
     pub color: [f32; 4],
 }
 
@@ -52,30 +64,45 @@ impl ColoredSprite {
 }
 
 impl Material for ColoredSprite {
-    fn get_key(&self) -> String {
-        self.key.clone()
+    fn get_group_key(&self, mesh_id: u32) -> String {
+        format!("mesh#{}-colored-sprite", mesh_id)
     }
 
-    fn update_state(&mut self) {
-        self.is_dirty.set(false);
+    fn get_buffers_updated(&self, mesh_id: u32) -> Vec<(String, Vec<u8>)> {
+        if self.is_dirty.get() {
+            let uniform_data = BufferBuilder::to_padded_vec(
+                ColoredSpriteUniform { color: self.color }
+            );
+
+            return vec![(self.get_group_key(mesh_id), uniform_data)];
+        }
+        vec![]
     }
 
-    fn get_data(&self, model_mat: glam::Mat4) -> Vec<u8> {
+    fn get_requirements(&self, mesh_id: u32) -> Vec<(String, u32)> {
+        vec![(self.get_group_key(mesh_id), 0)]
+    }
+
+    fn get_uniform_builders(&self, mesh_id: u32) -> Vec<(String, UniformBuilder)> {       
         let uniform_data = ColoredSpriteUniform {
-            model_matrix: model_mat.to_cols_array(),
             color: self.color,
         };
+        
+        let key = self.get_group_key(mesh_id);
+        let mat_data = BufferBuilder::to_padded_vec(uniform_data);
 
-        BufferBuilder::to_padded_vec(uniform_data)
+        let builder = BufferBuilder::as_uniform( 0)
+            .with_label(&key)
+            .with_data(mat_data);
+
+        vec![(key, UniformBuilder::Buffer(builder))]
     }
 
     fn get_layout_builder(&self) -> BindGroupLayoutBuilder {
-        BindGroupLayoutBuilder::new()
-        .with_label("colored-sprite")
-        .with_uniform_entry(LayoutVisibility::VertexFragment)
+        BindingLayout::ColoredSprite.get()
     }
 
-    fn is_dirty(&self) -> bool {
-        self.is_dirty.get()
+    fn update(&mut self) {
+        self.is_dirty.set(false);
     }
 }

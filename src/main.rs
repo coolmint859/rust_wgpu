@@ -73,7 +73,9 @@ impl<T: AppState> ApplicationHandler for App<T> {
         self.app_state.update(dt, self.elapsed_time);
 
         let reader_tracker = self.reader_tracker.take().expect("Tracker missing!");
-        self.reader_tracker = Some(wgpu_ctx.prepare_next_frame(reader_tracker));
+        self.reader_tracker = Some(wgpu_ctx.swap_trackers(reader_tracker));
+        
+        wgpu_ctx.prepare_next_frame();
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _window_id: WindowId, event: WindowEvent) {

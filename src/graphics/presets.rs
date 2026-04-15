@@ -2,48 +2,63 @@
 use std::sync::Arc;
 
 use crate::graphics::{
-    bind_group::{BindGroupLayoutBuilder, LayoutVisibility}, 
-    mesh::MeshData, 
-    registry::ResourceRegistry, 
-    render_pipeline::RenderPipelineTemplate, 
-    vertex::PositionVertex,
+    bind_group::{BindGroupLayoutBuilder, LayoutVisibility}, handler::ResourceHandler, mesh::MeshData, render_pipeline::RenderPipelineBuilder, texture::SamplerBuilder, vertex::{PositionVertex, UV_Vertex}
 };
 
 /// Preset rendering pipelines
-pub enum Pipeline {
+pub enum RenderPipeline {
     /// Simple 2D colored sprite rendering pipeline
     ColoredSprite,
+    TexturedSprite,
 }
 
-impl Pipeline {
-    /// Returns a RenderPipelineBuilder corresponding to the pipeline preset variant
-    pub fn get(self) -> RenderPipelineTemplate {
+impl RenderPipeline {
+    /// RGet the RenderPipelineBuilder that this RenderPipeline represents
+    pub fn get(self) -> RenderPipelineBuilder {
         return match self {
-            Pipeline::ColoredSprite => {
-                let path = "src/graphics/shaders/shader.wgsl";
+            RenderPipeline::ColoredSprite => {
+                let path = "src/graphics/shaders/colored_sprite.wgsl";
                 
-                RenderPipelineTemplate::new::<PositionVertex>(path)
+                RenderPipelineBuilder::new::<PositionVertex>(path)
                     .with_label("colored-sprite")
-                    .with_bg_layout("camera-2d")
-                    .with_bg_layout("colored-sprite")
+                    .with_bg_layout(BindingLayout::Camera2D.get())
+                    .with_bg_layout(BindingLayout::ColoredSprite.get())
+                    .with_bg_layout(BindingLayout::Instance.get())
+
+            }
+            RenderPipeline::TexturedSprite => {
+                let path = "src/graphics/shaders/textured_sprite.wgsl";
+                
+                RenderPipelineBuilder::new::<UV_Vertex>(path)
+                    .with_label("textured-sprite")
+                    .with_bg_layout(BindingLayout::Camera2D.get())
+                    .with_bg_layout(BindingLayout::TexturedSprite.get())
+                    .with_bg_layout(BindingLayout::Instance.get())
             }
         }
     }
 }
 
 pub enum BindingLayout {
+    Instance,
     ColoredSprite,
     TexturedSprite,
     Camera2D,
 }
 
 impl BindingLayout {
+    /// Get the BindGroupLayoutBuilder that this BindingLayout represents
     pub fn get(self) -> BindGroupLayoutBuilder {
         return match self {
+            BindingLayout::Instance => {
+                BindGroupLayoutBuilder::new()
+                    .with_label("instance")
+                    .with_uniform_entry(LayoutVisibility::Vertex)
+            }
             BindingLayout::ColoredSprite => {
                 BindGroupLayoutBuilder::new()
                     .with_label("colored-sprite")
-                    .with_uniform_entry(LayoutVisibility::VertexFragment)
+                    .with_uniform_entry(LayoutVisibility::Fragment)
             },
             BindingLayout::TexturedSprite => {
                 BindGroupLayoutBuilder::new()
@@ -59,13 +74,83 @@ impl BindingLayout {
     }
 }
 
+/// Represents a sampler with a specific address and filter mode, as supported by wgpu
+#[derive(Hash, Eq, PartialEq, Clone, Debug)]
+pub enum TextureSampler {
+    NearestClampEdge,
+    NearestClampBorder,
+    NearestRepeat,
+    NearestMirrorRepeat,
+    LinearClampEdge,
+    LinearClampBorder,
+    LinearRepeat,
+    LinearMirrorRepeat,
+}
+
+impl TextureSampler {
+    /// Get the SamplerBuilder that this TextureSampler represents
+    pub fn get(self) -> SamplerBuilder {
+        match self {
+            TextureSampler::NearestRepeat => {
+                SamplerBuilder { 
+                    address_mode: wgpu::AddressMode::Repeat, 
+                    filter: wgpu::FilterMode::Nearest 
+                }
+            },
+            TextureSampler::NearestClampEdge => {
+                SamplerBuilder { 
+                    address_mode: wgpu::AddressMode::ClampToEdge, 
+                    filter: wgpu::FilterMode::Nearest 
+                }
+            },
+            TextureSampler::NearestClampBorder => {
+                SamplerBuilder { 
+                    address_mode: wgpu::AddressMode::ClampToBorder, 
+                    filter: wgpu::FilterMode::Nearest 
+                }
+            },
+            TextureSampler::NearestMirrorRepeat => {
+                SamplerBuilder { 
+                    address_mode: wgpu::AddressMode::MirrorRepeat, 
+                    filter: wgpu::FilterMode::Nearest 
+                }
+            },
+            TextureSampler::LinearRepeat => {
+                SamplerBuilder { 
+                    address_mode: wgpu::AddressMode::Repeat, 
+                    filter: wgpu::FilterMode::Linear 
+                }
+            },
+            TextureSampler::LinearMirrorRepeat => {
+                SamplerBuilder { 
+                    address_mode: wgpu::AddressMode::MirrorRepeat, 
+                    filter: wgpu::FilterMode::Linear 
+                }
+            },
+            TextureSampler::LinearClampEdge => {
+                SamplerBuilder { 
+                    address_mode: wgpu::AddressMode::ClampToEdge, 
+                    filter: wgpu::FilterMode::Linear 
+                }
+            },
+            TextureSampler::LinearClampBorder => {
+                SamplerBuilder { 
+                    address_mode: wgpu::AddressMode::ClampToBorder, 
+                    filter: wgpu::FilterMode::Linear 
+                }
+            }
+        }
+    }
+}
+
+/// Generates and stores 2D shapes
 pub struct Shape2D {
-    shape_data: ResourceRegistry<String, Arc<MeshData>>,
+    shape_data: ResourceHandler<String, Arc<MeshData>>,
 }
 
 impl Shape2D {
     pub fn new() -> Self {
-        Self { shape_data: ResourceRegistry::new() }
+        Self { shape_data: ResourceHandler::new() }
     }
 
     /// Generate mesh data for a triangle
@@ -75,11 +160,9 @@ impl Shape2D {
         return match self.shape_data.get(&key) {
             Some(data) => Arc::clone(data),
             None => {
-                self.shape_data.store(
-                    &key, 
-                    Arc::new(gen_triangle())
-                );
-                Arc::clone(self.shape_data.get(&key).unwrap())
+                let triangle = Arc::new(gen_triangle());
+                self.shape_data.store(&key, Arc::clone(&triangle));
+                Arc::clone(&triangle)
             }
         }
     }
@@ -91,11 +174,9 @@ impl Shape2D {
         return match self.shape_data.get(&key) {
             Some(data) => Arc::clone(data),
             None => {
-                self.shape_data.store(
-                    &key, 
-                    Arc::new(gen_square())
-                );
-                Arc::clone(self.shape_data.get(&key).unwrap())
+                let square = Arc::new(gen_square());
+                self.shape_data.store(&key, Arc::clone(&square));
+                Arc::clone(&square)
             }
         }
     }

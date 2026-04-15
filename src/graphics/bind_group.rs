@@ -1,17 +1,10 @@
 #![allow(dead_code)]
-use std::{hash::Hash, sync::Arc};
+use std::sync::Arc;
 
-use super::gpu_resource::ResourceBuilder;
-
-/// A composite key for resources stored in a bind group
-#[derive(Hash, Eq, PartialEq, Clone, Debug)]
-pub struct ResourceID {
-    pub group_id: String,
-    pub binding: u32,
-}
+use super::handler::ResourceBuilder;
 
 /// Represents a single bind group layout entry
-#[derive(Clone, Debug)]
+#[derive(Clone, Hash, PartialEq, Eq, Debug)]
 pub struct LayoutEntry {
     pub binding: u32,
     pub visibility: wgpu::ShaderStages,
@@ -29,7 +22,7 @@ pub enum LayoutVisibility {
 }
 
 /// Bind Group Entry layout types
-#[derive(Clone, Debug)]
+#[derive(Clone, Hash, PartialEq, Eq, Debug)]
 pub enum LayoutBindType {
     Uniform,
     Storage(bool),
@@ -37,7 +30,7 @@ pub enum LayoutBindType {
     Sampler,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Hash, PartialEq, Eq, Debug)]
 pub struct BindGroupLayoutBuilder {
     pub label: String,
     pub entries: Vec<LayoutEntry>
@@ -143,6 +136,13 @@ impl ResourceBuilder for BindGroupLayoutBuilder {
     }
 }
 
+/// Houses the environment needed to construct bind groups
+#[derive(Clone)]
+pub struct BindGroupContext {
+    pub device: Arc<wgpu::Device>,
+    pub layout: Arc<wgpu::BindGroupLayout>
+}
+
 /// A specific resource stored in a bind group entry
 #[derive(Clone, Debug)]
 pub enum BindGroupResource {
@@ -163,23 +163,21 @@ pub struct BindGroupEntry {
 pub struct BindGroupBuilder {
     pub label: String,
     pub entries: Vec<BindGroupEntry>,
-    pub layout: Arc<wgpu::BindGroupLayout>,
 }
 
 impl BindGroupBuilder {
-    pub fn new(layout: Arc<wgpu::BindGroupLayout>) -> Self {
+    pub fn new() -> Self {
         Self {
             label: "bind-group-builder".to_string(),
             entries: Vec::new(),
-            layout: Arc::clone(&layout)
         }
     }
 
     /// Add a list of resources to this bind group
-    pub fn with_resources(mut self, resources: Vec<(ResourceID, BindGroupResource)>) -> Self {
-        for (id, resource) in resources {
+    pub fn with_resources(mut self, resources: Vec<(u32, BindGroupResource)>) -> Self {
+        for (bind_slot, resource) in resources {
             self.entries.push(BindGroupEntry { 
-                bind_slot: id.binding, 
+                bind_slot, 
                 resource 
             });
         }
@@ -195,9 +193,9 @@ impl BindGroupBuilder {
 
 impl ResourceBuilder for BindGroupBuilder {
     type Output = wgpu::BindGroup;
-    type Context = wgpu::Device;
+    type Context = BindGroupContext;
 
-    fn build(&self, device: Arc<wgpu::Device>) -> Result<wgpu::BindGroup, String> {
+    fn build(&self, context: Arc<BindGroupContext>) -> Result<wgpu::BindGroup, String> {
         let group_entries: Vec<wgpu::BindGroupEntry> = self.entries.iter()
             .map(|entry| {
                 let bind_resource = match &entry.resource {
@@ -223,10 +221,10 @@ impl ResourceBuilder for BindGroupBuilder {
             })
             .collect();
 
-        let bind_group = device.create_bind_group(
+        let bind_group = context.device.create_bind_group(
             &wgpu::BindGroupDescriptor {
                 label: Some(&format!("Bind Group for '{}'", self.label)),
-                layout: &self.layout,
+                layout: &context.layout,
                 entries: &group_entries
             }
         );

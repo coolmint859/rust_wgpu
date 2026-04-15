@@ -1,14 +1,16 @@
+#![allow(dead_code)]
 use std::sync::Arc;
 use std::sync::atomic::{ AtomicU32, Ordering };
+
+use crate::graphics::material::UniformBuilder;
 
 use super::{
     material::Material,
     transform::Transform,
     vertex::PositionVertex,
-    render_pipeline::RenderPipelineTemplate,
-    gpu_resource::ResourceBuilder,
+    render_pipeline::RenderPipelineBuilder,
+    handler::ResourceBuilder,
     buffer::BufferBuilder,
-    bind_group::ResourceID
 };
 
 /// represents a mesh as it lives on the gpu during rendering, most importantly it's buffers
@@ -19,6 +21,7 @@ pub struct MeshBuffer {
 }
 
 static DATA_COUNTER: AtomicU32 = AtomicU32::new(0);
+static MESH_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 /// Represents vertex and index data as it lives in cpu memory
 #[derive(Clone, Debug)]
@@ -67,12 +70,12 @@ impl ResourceBuilder for Arc<MeshData> {
         let index_data: Vec<u8> = bytemuck::cast_slice(&self.index_data).to_vec();
 
         let vertex_buffer = BufferBuilder::as_vertex(0)
-            .with_label(&format!("mesh #{}: vertex", self.id))
+            .with_label(&format!("mesh-data#{}-vertex", self.id))
             .with_data(vertex_data)
             .build(Arc::clone(&device))?;
 
         let index_buffer = BufferBuilder::as_index(0)
-            .with_label(&format!("mesh #{}: index", self.id))
+            .with_label(&format!("mesh-data#{}-index", self.id))
             .with_data(index_data)
             .build(Arc::clone(&device))?;
 
@@ -86,60 +89,98 @@ impl ResourceBuilder for Arc<MeshData> {
     }
 }
 
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ModelMatrixUniform {
+    model_matrix: [f32; 16]
+}
+
 pub struct Mesh<M: Material> {
+    pub id: u32,
     pub transform: Transform,
     pub data: Arc<MeshData>,
     pub material: M,
-    pub pipeline: RenderPipelineTemplate,
+    pub pipeline: RenderPipelineBuilder,
 }
 
 impl<M: Material> Mesh<M> {
     pub fn new(
         data: Arc<MeshData>, 
         material: M, 
-        pipeline: RenderPipelineTemplate
+        pipeline: RenderPipelineBuilder
     ) -> Self {
+        let id = MESH_COUNTER.fetch_add(1, Ordering::SeqCst);
         Self {
-           transform: Transform::default(),
-           data: Arc::clone(&data),
-           material,
-           pipeline,
+            id,
+            transform: Transform::default(),
+            data: Arc::clone(&data),
+            material,
+            pipeline,
         }
     }
 
-    /// get the required buffers and their keys needed to render the mesh.
-    pub fn get_requirements(&self) -> Vec<(ResourceID, BufferBuilder)> {
-        let material_data = self.material.get_data(self.transform.world_matrix());
+    /// Retrieve the uniform keys for this mesh and it's material.
+    pub fn get_uniform_keys(&self) -> (String, String) {
+        (
+        self.get_key(),
+        self.material.get_group_key(self.id)
+        )
+    }
 
-        let mat_key= self.material.get_key();
+    /// Retrieve the uniform key specific for this mesh.
+    pub fn get_key(&self) -> String {
+        format!("mesh#{}-instance-uniforms", self.id)
+    }
 
-        let key = ResourceID { group_id: mat_key.clone(), binding: 0 };
-        let builder = BufferBuilder::as_uniform( 0)
-            .with_label(&format!("mesh #{}:{}", self.data.id, mat_key))
-            .with_data(material_data);
+    /// get the mesh's uniform buffer keys and their bind group bindings. (Used to make a bind group)
+    pub fn get_material_requirements(&self) -> Vec<(String, u32)> {
+        vec![(self.material.get_group_key(self.id), 0)]
+    }
 
-        return vec![(key, builder)]
+    /// get the uniform builders and their keys (used to make uniform buffers)
+    pub fn get_uniforms(&mut self) -> Vec<(String, UniformBuilder)> {
+        let mut uniforms = self.material.get_uniform_builders(self.id);
+        
+        // if self.transform.is_dirty() {
+            self.transform.update();
+
+            // println!("creating instance uniforms for mesh #{}", self.id);
+
+            let model_mat = ModelMatrixUniform {
+                model_matrix: self.transform.world_matrix().to_cols_array()
+            };
+
+            let builder: UniformBuilder = UniformBuilder::Buffer(
+                BufferBuilder::as_uniform(0)
+                    .with_label(&self.get_key())
+                    .with_data_from_struct(model_mat)
+            );
+            uniforms.push((self.get_key(), builder));
+        // }
+        uniforms
     }
 
     /// Check for internal updates and return key-value pairs of updated resources.
     /// 
     /// This is a destructive read, so subsequent calls in the same frame will yeild an empty vector
-    pub fn get_updated(&mut self) -> Vec<(ResourceID, Vec<u8>)> {
-        if self.material.is_dirty() {
-            self.material.update_state();
-        }
+    pub fn get_updated(&mut self) -> Vec<(String, Vec<u8>)> {
         if self.transform.is_dirty() {
-            self.transform.update_world_mat();
+            self.transform.update();
         }
+        let mut updated = self.material.get_buffers_updated(self.id);
+        
+        // if self.transform.is_dirty() {
+            self.transform.update();
 
-        let key = ResourceID { group_id: self.material.get_key(), binding: 0 };
-        let data = self.material.get_data(self.transform.world_matrix());
-        vec![(key, data)]
-    }
+            let model_mat = ModelMatrixUniform {
+                model_matrix: self.transform.world_matrix().to_cols_array()
+            };
 
-    /// Retrieve this mesh's resource keys as vector of ResourceIDs
-    pub fn get_resource_keys(&self) -> Vec<ResourceID> {
-        vec![ResourceID { group_id: self.material.get_key(), binding: 0 }]
+            let model_mat_data = BufferBuilder::to_padded_vec(model_mat);
+            updated.push((self.get_key(), model_mat_data));
+        // }
+
+        updated
     }
 
     /// Create a shallow copy of this mesh (does not duplicate vertex/index data)
@@ -158,7 +199,7 @@ impl<M: Material> Mesh<M> {
         Arc::clone(&self.data)
     }
 
-    pub fn get_pipeline(&self) -> RenderPipelineTemplate {
+    pub fn get_rpip_builder(&self) -> RenderPipelineBuilder {
         self.pipeline.clone()
     }
 }
