@@ -2,7 +2,11 @@
 use std::sync::Arc;
 
 use crate::graphics::{
-    bind_group::{BindGroupLayoutBuilder, LayoutVisibility}, handler::ResourceHandler, mesh::MeshData, render_pipeline::RenderPipelineBuilder, texture::SamplerBuilder, vertex::{PositionVertex, UV_Vertex}
+   handler::ResourceHandler, 
+   mesh::MeshData, 
+   render_pipeline::RenderPipelineBuilder, 
+   texture::SamplerBuilder, 
+   vertex::{PositionVertex, UV_Vertex}
 };
 
 /// Preset rendering pipelines
@@ -18,57 +22,11 @@ impl RenderPipeline {
         return match self {
             RenderPipeline::ColoredSprite => {
                 let path = "src/graphics/shaders/colored_sprite.wgsl";
-                
-                RenderPipelineBuilder::new::<PositionVertex>(path)
-                    .with_label("colored-sprite")
-                    .with_bg_layout(BindingLayout::Camera2D.get())
-                    .with_bg_layout(BindingLayout::ColoredSprite.get())
-                    .with_bg_layout(BindingLayout::Instance.get())
-
+                RenderPipelineBuilder::new::<PositionVertex>(path, 3).with_label("colored-sprite")
             }
             RenderPipeline::TexturedSprite => {
                 let path = "src/graphics/shaders/textured_sprite.wgsl";
-                
-                RenderPipelineBuilder::new::<UV_Vertex>(path)
-                    .with_label("textured-sprite")
-                    .with_bg_layout(BindingLayout::Camera2D.get())
-                    .with_bg_layout(BindingLayout::TexturedSprite.get())
-                    .with_bg_layout(BindingLayout::Instance.get())
-            }
-        }
-    }
-}
-
-pub enum BindingLayout {
-    Instance,
-    ColoredSprite,
-    TexturedSprite,
-    Camera2D,
-}
-
-impl BindingLayout {
-    /// Get the BindGroupLayoutBuilder that this BindingLayout represents
-    pub fn get(self) -> BindGroupLayoutBuilder {
-        return match self {
-            BindingLayout::Instance => {
-                BindGroupLayoutBuilder::new()
-                    .with_label("instance")
-                    .with_uniform_entry(LayoutVisibility::Vertex)
-            }
-            BindingLayout::ColoredSprite => {
-                BindGroupLayoutBuilder::new()
-                    .with_label("colored-sprite")
-                    .with_uniform_entry(LayoutVisibility::Fragment)
-            },
-            BindingLayout::TexturedSprite => {
-                BindGroupLayoutBuilder::new()
-                    .with_label("textured-sprite")
-                    .with_uniform_entry(LayoutVisibility::Fragment)
-            },
-            BindingLayout::Camera2D => {
-                BindGroupLayoutBuilder::new()
-                    .with_label("camera-2d")
-                    .with_uniform_entry(LayoutVisibility::VertexFragment)
+                RenderPipelineBuilder::new::<UV_Vertex>(path, 3).with_label("textured-sprite")
             }
         }
     }

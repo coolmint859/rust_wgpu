@@ -18,7 +18,6 @@ pub enum InitMode {
 pub struct RenderPipelineCommand {
     pub builder: RenderPipelineBuilder,
     pub mode: InitMode,
-    pub key: String,
 }
 
 #[derive(Clone, Debug)]
@@ -26,7 +25,6 @@ pub struct RenderPipelineCommand {
 pub struct BindGroupLayoutCommand {
     pub builder: BindGroupLayoutBuilder,
     pub mode: InitMode,
-    pub key: String,
 }
 
 /// Command Buffer for app state initialization
@@ -44,21 +42,13 @@ impl StateInit {
     }
 
     /// Add a render pipeline to the initialization commands.
-    pub fn add_render_pipeline(&mut self, key: &str, builder: RenderPipelineBuilder, mode: InitMode) {
-        self.rpip_commands.push(RenderPipelineCommand { 
-            key: key.to_string(),
-            builder, 
-            mode,
-        });
+    pub fn add_render_pipeline(&mut self, builder: RenderPipelineBuilder, mode: InitMode) {
+        self.rpip_commands.push(RenderPipelineCommand { builder, mode });
     }
 
     /// Add a bind group layout to the initialization commands.
-    pub fn add_bind_group_layout(&mut self, key: &str, builder: BindGroupLayoutBuilder, mode: InitMode) {
-        self.bgl_commands.push(BindGroupLayoutCommand {
-            key: key.to_string(),
-            builder, 
-            mode 
-        })
+    pub fn add_bind_group_layout(&mut self, builder: BindGroupLayoutBuilder, mode: InitMode) {
+        self.bgl_commands.push(BindGroupLayoutCommand { builder, mode })
     }
 
     pub fn get_rpip_cmds(&self) -> Vec<RenderPipelineCommand> {

@@ -1,8 +1,10 @@
 #![allow(dead_code)]
 use std::{borrow::Cow, sync::Arc};
 
-use crate::graphics::{
-    bind_group::BindGroupLayoutBuilder, handler::ResourceBuilder, vertex::Vertex,
+use super::{
+    bind_group::BindGroupLayoutBuilder, 
+    handler::ResourceBuilder, 
+    vertex::Vertex,
 };
 
 /// Houses the environment needed to construct rendering pipelines
@@ -35,7 +37,8 @@ pub struct RenderPipelineBuilder {
 }
 
 impl RenderPipelineBuilder {
-    pub fn new<V: Vertex>(shader_path: &str) -> Self {
+    pub fn new<V: Vertex>(shader_path: &str, layout_count: usize) -> Self {
+        let layout_ids = vec![BindGroupLayoutBuilder::new(); layout_count];
         Self {
             label: "default-pipeline".to_string(),
             shader_path: shader_path.to_string(),
@@ -43,7 +46,7 @@ impl RenderPipelineBuilder {
             fs_main: "fs_main".to_string(),
             vertex_stride: std::mem::size_of::<V>() as u64,
             vertex_attribs: V::attributes(),
-            layout_ids: Vec::new(),
+            layout_ids: layout_ids,
             topology: wgpu::PrimitiveTopology::TriangleList,
             blend_state: Some(wgpu::BlendState::REPLACE),
             cull_mode: Some(wgpu::Face::Back),
@@ -75,9 +78,22 @@ impl RenderPipelineBuilder {
     }
 
     /// Add a bind group layout to the render pipeline
-    pub fn with_bg_layout(mut self, id: BindGroupLayoutBuilder) -> Self {
-        self.layout_ids.push(id);
+    pub fn with_bg_layout(mut self, group: u32, id: BindGroupLayoutBuilder) -> Self {
+        self.layout_ids[group as usize] = id;
         self
+    }
+
+    /// Add a bind group layout to the render pipeline
+    /// 
+    /// # Panics
+    /// If the group number exceeds this pipeline's expected layout count
+    pub fn add_bg_layout(&mut self, group: u32, id: BindGroupLayoutBuilder) {
+        let idx = group as usize;
+        if idx >= self.layout_ids.len() {
+            panic!("[Render Pipeline] Group id {} exceeds expected layout count of {}", idx, self.layout_ids.len());
+        }
+
+        self.layout_ids[group as usize] = id;
     }
 
     /// Set the blend state to include alpha

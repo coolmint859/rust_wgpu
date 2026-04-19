@@ -2,14 +2,14 @@
 use std::cell::Cell;
 use glam::{Mat4, Quat, Vec2, Vec3};
 
-use crate::graphics::{bind_group::{BindGroupLayoutBuilder, LayoutVisibility}, transform::Transform};
+use super::{
+    bind_group::*, 
+    transform::Transform
+};
 
 pub trait Camera {
     /// Get the unique identifier for this camera
     fn get_key(&self) -> String;
-
-    /// Get the id to the bind group layout to which this camera represents
-    fn get_layout_id(&self) -> String;
 
     /// Get the bind group layout builder for this camera
     fn get_layout_builder(&self) -> BindGroupLayoutBuilder;
@@ -34,7 +34,6 @@ pub trait Camera {
 /// Represents a 2D camera, using orthographic projection
 pub struct Camera2D {
     key: String,
-    layout_id: String,
     transform: Transform,
     zoom: f32, 
     aspect: f32,
@@ -43,69 +42,10 @@ pub struct Camera2D {
     view_proj_mat: Mat4,
 }
 
-impl Camera for Camera2D {
-    fn get_key(&self) -> String {
-        self.key.clone()
-    }
-
-    fn get_layout_id(&self) -> String {
-        self.layout_id.clone()
-    }
-
-    fn get_layout_builder(&self) -> BindGroupLayoutBuilder {
-        BindGroupLayoutBuilder::new()
-            .with_label("camera-2d")
-            .with_uniform_entry(LayoutVisibility::VertexFragment)
-    }
-
-    fn get_position(&self) -> Vec3 {
-        self.transform.position
-    }
-
-    fn get_view_proj_mat(&self) -> glam::Mat4 {
-        self.view_proj_mat.clone()
-    }
-
-    fn is_dirty(&self) -> bool {
-        self.is_dirty.get() || self.transform.is_dirty()
-    }
-
-    fn set_aspect_ratio(&mut self, new_aspect: f32) {
-        if self.aspect != new_aspect {
-            self.aspect = new_aspect;
-            self.is_dirty.set(true);
-        }
-    }
-
-    /// update the camera's view-projection matrix
-    fn update(&mut self) {
-        if self.is_dirty() {
-            self.transform.update();
-            let view_mat = self.transform.world_matrix().inverse();
-
-            let half_width = self.aspect / self.zoom;
-            let half_height = 1.0 / self.zoom;
-
-            let proj_mat = glam::Mat4::orthographic_lh(
-                -half_width, 
-                half_width, 
-                -half_height, 
-                half_height, 
-                -1.0, 
-                1.0
-            );
-
-            self.view_proj_mat = proj_mat * view_mat;
-            self.is_dirty.set(false);
-        }
-    }
-}
-
 impl Camera2D {
     pub fn new(key: &str) -> Self {
         Self {
             key: key.to_string(),
-            layout_id: "camera-2d".to_string(),
             transform: Transform::default(),
             zoom: 1.0,
             aspect: 1.0,
@@ -169,5 +109,64 @@ impl Camera2D {
     pub fn set_zoom(&mut self, zoom: f32) {
         self.zoom = zoom;
         self.is_dirty.set(true);
+    }
+}
+
+impl Camera for Camera2D {
+    fn get_key(&self) -> String {
+        self.key.clone()
+    }
+
+    fn get_layout_builder(&self) -> BindGroupLayoutBuilder {
+        BindGroupLayoutBuilder::new()
+            .with_label(&self.key)
+            .with_entry(LayoutEntry {
+                key: self.get_key(),
+                binding: 0,
+                visibility: LayoutVisibility::VertexFragment,
+                ty: LayoutBindType::Uniform
+            })
+    }
+
+    fn get_position(&self) -> Vec3 {
+        self.transform.position
+    }
+
+    fn get_view_proj_mat(&self) -> glam::Mat4 {
+        self.view_proj_mat.clone()
+    }
+
+    fn is_dirty(&self) -> bool {
+        self.is_dirty.get() || self.transform.is_dirty()
+    }
+
+    fn set_aspect_ratio(&mut self, new_aspect: f32) {
+        if self.aspect != new_aspect {
+            self.aspect = new_aspect;
+            self.is_dirty.set(true);
+        }
+    }
+
+    /// update the camera's view-projection matrix
+    fn update(&mut self) {
+        if self.is_dirty() {
+            self.transform.update();
+            let view_mat = self.transform.world_matrix().inverse();
+
+            let half_width = self.aspect / self.zoom;
+            let half_height = 1.0 / self.zoom;
+
+            let proj_mat = glam::Mat4::orthographic_lh(
+                -half_width, 
+                half_width, 
+                -half_height, 
+                half_height, 
+                -1.0, 
+                1.0
+            );
+
+            self.view_proj_mat = proj_mat * view_mat;
+            self.is_dirty.set(false);
+        }
     }
 }

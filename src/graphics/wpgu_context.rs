@@ -3,7 +3,7 @@ use winit::window::Window;
 use std::sync::Arc;
 
 use crate::graphics::{
-    bind_group::{BindGroupBuilder, BindGroupContext, BindGroupLayoutBuilder, BindGroupResource}, core::WgpuCore, handler::{ResourceHandler, ResourceStatus}, init_state::{InitMode, StateInit}, mesh::MeshBuffer, presets::{BindingLayout, TextureSampler}, render_pipeline::{RenderPipelineBuilder, RenderPipelineContext}, renderer::{CreateCommand, Renderer, UpdateCommand}, texture::{TextureBuilder, TextureContext, TextureResource}, tracker::ResourceTracker
+    bind_group::{BindGroupBuilder, BindGroupContext, BindGroupLayoutBuilder, BindGroupResource}, core::WgpuCore, handler::{ResourceHandler, ResourceStatus}, init_state::{InitMode, StateInit}, mesh::MeshBuffer, presets::TextureSampler, render_pipeline::{RenderPipelineBuilder, RenderPipelineContext}, renderer::{CreateCommand, Renderer, UpdateCommand}, texture::{TextureBuilder, TextureContext, TextureResource}, tracker::ResourceTracker
 };
 
 /// Group binding number for global uniforms
@@ -35,13 +35,12 @@ impl WgpuContext {
     pub async fn new(window: Arc<Window>) -> Self {
         let core = WgpuCore::new(window).await;
 
-        let layout_handler = WgpuContext::init_layouts(&core);
         let sampler_handler = WgpuContext::init_samplers(&core);
 
         Self {
             core,
-            layout_handler,
             sampler_handler,
+            layout_handler: ResourceHandler::new(),
             mesh_handler: ResourceHandler::new(),
             bindgroup_handler: ResourceHandler::new(),
             pipeline_handler: ResourceHandler::new(),
@@ -49,19 +48,6 @@ impl WgpuContext {
             texture_handler: ResourceHandler::new(),
             tracker: ResourceTracker::new()
         }
-    }
-
-    fn init_layouts(core: &WgpuCore) -> ResourceHandler<BindGroupLayoutBuilder, Arc<wgpu::BindGroupLayout>> {
-        let mut layout_handler = ResourceHandler::new();
-
-        let cs_builder = BindingLayout::ColoredSprite.get();
-        let inst_builder = BindingLayout::Instance.get();
-        let c2d_builder = BindingLayout::Camera2D.get();
-        let _ = layout_handler.request_wait(&cs_builder, &cs_builder, Arc::clone(&core.device));
-        let _ = layout_handler.request_wait(&inst_builder, &inst_builder, Arc::clone(&core.device));
-        let _ = layout_handler.request_wait(&c2d_builder, &c2d_builder, Arc::clone(&core.device));
-        
-        layout_handler
     }
 
     fn init_samplers(core: &WgpuCore) -> ResourceHandler<TextureSampler, Arc<wgpu::Sampler>> {
@@ -97,43 +83,44 @@ impl WgpuContext {
         for id in &builder.get_layout_ids() {
             if let Some(layout) = self.layout_handler.get(&id) {
                 layouts.push(Arc::clone(layout));
-            } else {
-                panic!("Required layout {} not found for pipeline {}", id.label, builder.label);
             }
         }
 
-        let rpip_context = Arc::new(
-            RenderPipelineContext {
-                device: Arc::clone(&self.core.device),
-                layouts: layouts,
-                format: self.core.config.format.clone()
-            }
-        );
+        if layouts.len() == builder.get_layout_ids().len() {
+            let rpip_context = Arc::new(
+                RenderPipelineContext {
+                    device: Arc::clone(&self.core.device),
+                    layouts: layouts,
+                    format: self.core.config.format.clone()
+                }
+            );
 
-        self.tracker.pipelines.insert(builder.clone());
-        match mode {
-            InitMode::Immediate => {
-                let _ = self.pipeline_handler.request_wait(
-                    &builder, 
-                    builder, 
-                    Arc::clone(&rpip_context)
-                );
-            },
-            InitMode::Deferred => {
-                self.pipeline_handler.request_new(
-                    &builder, 
-                    builder, 
-                    Arc::clone(&rpip_context)
-                );
+            self.tracker.pipelines.insert(builder.clone());
+            match mode {
+                InitMode::Immediate => {
+                    let _ = self.pipeline_handler.request_wait(
+                        &builder, 
+                        builder, 
+                        Arc::clone(&rpip_context)
+                    );
+                },
+                InitMode::Deferred => {
+                    self.pipeline_handler.request_new(
+                        &builder, 
+                        builder, 
+                        Arc::clone(&rpip_context)
+                    );
+                }
             }
         }
     }
 
     /// initialize a new bind group request 
-    fn init_bind_group(&mut self, group_id: &String, layout_id: &BindGroupLayoutBuilder, bind_keys: Vec<(String, u32)>) {
+    fn init_bind_group(&mut self, group_id: &String, layout_id: &BindGroupLayoutBuilder) {
         if !self.layout_handler.is_ready(layout_id) {
             return;
         }
+        let bind_keys = layout_id.get_bindings();
 
         let mut resource_pairs = Vec::with_capacity(bind_keys.len());
         for (key, bind_slot) in &bind_keys {
@@ -225,8 +212,8 @@ impl WgpuContext {
                 CreateCommand::RenderPipeline { builder, mode } => {
                     self.init_pipeline(builder, mode.clone());
                 },
-                CreateCommand::BindGroup { id, layout_id, bind_keys } => {
-                    self.init_bind_group(&id, layout_id, bind_keys.clone());
+                CreateCommand::BindGroup { id, layout_id } => {
+                    self.init_bind_group(&id, layout_id);
                 }
             }
         }
@@ -298,14 +285,15 @@ impl WgpuContext {
         for draw_cmd in renderer.draw_cmds() {
             let mesh_status = self.mesh_handler.status_of(&draw_cmd.id);
             let pip_status = self.pipeline_handler.status_of(&draw_cmd.rpip_id);
-            let mat_u_status = self.bindgroup_handler.status_of(&draw_cmd.mat_group_id);
-            let mesh_u_status = self.bindgroup_handler.status_of(&draw_cmd.mesh_group_id);
+            let mat_u_status = self.bindgroup_handler.status_of(&draw_cmd.material_key);
+            let mesh_u_status = self.bindgroup_handler.status_of(&draw_cmd.entity_key);
 
             if let (Some(ResourceStatus::Ready(mesh)), 
                     Some(ResourceStatus::Ready(pipeline)), 
                     Some(ResourceStatus::Ready(mat_uniforms)),
                     Some(ResourceStatus::Ready(mesh_uniforms))) = (mesh_status, pip_status, mat_u_status, mesh_u_status) 
             {
+
                 render_pass.set_pipeline(pipeline);
                 render_pass.set_bind_group(MATERIAL_UNIFORMS, mat_uniforms, &[]);
                 render_pass.set_bind_group(INSTANCE_UNIFORMS, mesh_uniforms, &[]);

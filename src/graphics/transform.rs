@@ -122,11 +122,15 @@ impl Transform {
         return self.is_dirty.get()
     }
 
-    /// Update the world matrix from the currently set position, rotation, and scale
-    pub fn update(&mut self) {
+    /// Update the world matrix from the currently set position, rotation, and scale.
+    /// 
+    /// Returns true if the transform had changed this frame, false otherwise
+    pub fn update(&mut self) -> bool {
         if self.is_dirty() {
             self.world_mat = Mat4::from_scale_rotation_translation(self.dimensions, self.rotation, self.position);
             self.is_dirty.set(false);
+            return true;
         }
+        return false;
     }
 }

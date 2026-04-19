@@ -2,13 +2,8 @@
 use std::sync::Arc;
 use std::sync::atomic::{ AtomicU32, Ordering };
 
-use crate::graphics::material::UniformBuilder;
-
 use super::{
-    material::Material,
-    transform::Transform,
     vertex::PositionVertex,
-    render_pipeline::RenderPipelineBuilder,
     handler::ResourceBuilder,
     buffer::BufferBuilder,
 };
@@ -70,12 +65,12 @@ impl ResourceBuilder for Arc<MeshData> {
         let index_data: Vec<u8> = bytemuck::cast_slice(&self.index_data).to_vec();
 
         let vertex_buffer = BufferBuilder::as_vertex(0)
-            .with_label(&format!("mesh-data#{}-vertex", self.id))
+            .with_label(&format!("vertex_{}", self.id))
             .with_data(vertex_data)
             .build(Arc::clone(&device))?;
 
         let index_buffer = BufferBuilder::as_index(0)
-            .with_label(&format!("mesh-data#{}-index", self.id))
+            .with_label(&format!("index_{}", self.id))
             .with_data(index_data)
             .build(Arc::clone(&device))?;
 
@@ -89,117 +84,43 @@ impl ResourceBuilder for Arc<MeshData> {
     }
 }
 
-#[repr(C)]
-#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct ModelMatrixUniform {
-    model_matrix: [f32; 16]
+pub struct Mesh {
+    label: String,
+    id: u32,
+    data: Arc<MeshData>,
 }
 
-pub struct Mesh<M: Material> {
-    pub id: u32,
-    pub transform: Transform,
-    pub data: Arc<MeshData>,
-    pub material: M,
-    pub pipeline: RenderPipelineBuilder,
-}
-
-impl<M: Material> Mesh<M> {
-    pub fn new(
-        data: Arc<MeshData>, 
-        material: M, 
-        pipeline: RenderPipelineBuilder
-    ) -> Self {
+impl Mesh {
+    pub fn new(label: &str, data: Arc<MeshData>) -> Self {
         let id = MESH_COUNTER.fetch_add(1, Ordering::SeqCst);
         Self {
             id,
-            transform: Transform::default(),
+            label: label.to_string(),
             data: Arc::clone(&data),
-            material,
-            pipeline,
         }
     }
 
-    /// Retrieve the uniform keys for this mesh and it's material.
-    pub fn get_uniform_keys(&self) -> (String, String) {
-        (
-        self.get_key(),
-        self.material.get_group_key(self.id)
-        )
-    }
-
-    /// Retrieve the uniform key specific for this mesh.
+    /// Get the unique key of this mesh (label + id + data id).
     pub fn get_key(&self) -> String {
-        format!("mesh#{}-instance-uniforms", self.id)
+        format!("{}_{}_{}", self.label, self.id, self.data.id)
     }
 
-    /// get the mesh's uniform buffer keys and their bind group bindings. (Used to make a bind group)
-    pub fn get_material_requirements(&self) -> Vec<(String, u32)> {
-        vec![(self.material.get_group_key(self.id), 0)]
-    }
-
-    /// get the uniform builders and their keys (used to make uniform buffers)
-    pub fn get_uniforms(&mut self) -> Vec<(String, UniformBuilder)> {
-        let mut uniforms = self.material.get_uniform_builders(self.id);
-        
-        // if self.transform.is_dirty() {
-            self.transform.update();
-
-            // println!("creating instance uniforms for mesh #{}", self.id);
-
-            let model_mat = ModelMatrixUniform {
-                model_matrix: self.transform.world_matrix().to_cols_array()
-            };
-
-            let builder: UniformBuilder = UniformBuilder::Buffer(
-                BufferBuilder::as_uniform(0)
-                    .with_label(&self.get_key())
-                    .with_data_from_struct(model_mat)
-            );
-            uniforms.push((self.get_key(), builder));
-        // }
-        uniforms
-    }
-
-    /// Check for internal updates and return key-value pairs of updated resources.
-    /// 
-    /// This is a destructive read, so subsequent calls in the same frame will yeild an empty vector
-    pub fn get_updated(&mut self) -> Vec<(String, Vec<u8>)> {
-        if self.transform.is_dirty() {
-            self.transform.update();
-        }
-        let mut updated = self.material.get_buffers_updated(self.id);
-        
-        // if self.transform.is_dirty() {
-            self.transform.update();
-
-            let model_mat = ModelMatrixUniform {
-                model_matrix: self.transform.world_matrix().to_cols_array()
-            };
-
-            let model_mat_data = BufferBuilder::to_padded_vec(model_mat);
-            updated.push((self.get_key(), model_mat_data));
-        // }
-
-        updated
+    /// Get the id of the vertex/index data that this mesh uses
+    pub fn get_data_key(&self) -> u32 {
+        self.data.id
     }
 
     /// Create a shallow copy of this mesh (does not duplicate vertex/index data)
-    pub fn duplicate(&self) -> Mesh<M> {
-        let mut mesh_dup = Mesh::new(
-            Arc::clone(&self.data),
-            self.material.clone(),
-            self.pipeline.clone()
-        );
-        mesh_dup.transform = self.transform.clone();
-        
-        mesh_dup
+    pub fn duplicate(&self) -> Mesh {
+        Mesh::new(&self.label.clone(), Arc::clone(&self.data))
+    }
+
+    /// Create a shallow copy of this mesh, but with a new label (does not duplicate vertex/index data)
+    pub fn duplicate_with_label(&self, label: &str) -> Mesh {
+        Mesh::new(label, Arc::clone(&self.data))
     }
 
     pub fn get_data_builder(&self) -> Arc<MeshData> {
         Arc::clone(&self.data)
-    }
-
-    pub fn get_rpip_builder(&self) -> RenderPipelineBuilder {
-        self.pipeline.clone()
     }
 }
