@@ -1,13 +1,40 @@
 #![allow(dead_code)]
 use std::sync::Arc;
 
+use bytemuck::NoUninit;
 use image::GenericImageView;
 use super::handler::ResourceBuilder;
 
+/// Simple struct representing a pixel in a texture
+#[repr(C)]
+#[derive(Clone, Copy, NoUninit)]
+pub struct Pixel {
+    r: u8, g: u8, b: u8, a: u8
+}
+const MAGENTA_PIX: Pixel = Pixel { r: 255, g: 0, b: 255, a: 255};
+const WHITE_PIX: Pixel = Pixel { r: 255, g: 255, b: 255, a: 255};
+
 #[derive(Hash, PartialEq, Eq, Clone, Debug)]
 pub struct SamplerBuilder {
-    pub address_mode: wgpu::AddressMode, // e.g., Repeat, ClampToEdge
-    pub filter: wgpu::FilterMode,        // e.g., Linear, Nearest
+    label: String,
+    address_mode: wgpu::AddressMode, // e.g., Repeat, ClampToEdge
+    filter_mode: wgpu::FilterMode,        // e.g., Linear, Nearest
+}
+
+impl SamplerBuilder {
+    pub fn new(address_mode: wgpu::AddressMode, filter_mode: wgpu::FilterMode) -> Self {
+        Self {
+            label: "sampler".to_string(),
+            address_mode,
+            filter_mode,
+        }
+    }
+
+    /// Add a custom label for GPU profiling
+    pub fn with_label(mut self, label: &str) -> Self {
+        self.label = label.to_string();
+        self
+    }
 }
 
 impl ResourceBuilder for SamplerBuilder {
@@ -18,10 +45,12 @@ impl ResourceBuilder for SamplerBuilder {
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: self.address_mode,
             address_mode_v: self.address_mode,
-            mag_filter: self.filter,
-            min_filter: self.filter,
+            mag_filter: self.filter_mode,
+            min_filter: self.filter_mode,
             ..Default::default()
         });
+        
+        println!("[Sampler] Created new sampler with label '{}'", self.label);
 
         Ok(Arc::new(sampler))
     }
@@ -32,12 +61,6 @@ impl ResourceBuilder for SamplerBuilder {
 pub struct TextureContext {
     pub device: Arc<wgpu::Device>,
     pub queue: Arc<wgpu::Queue>,
-    pub sampler: Arc<wgpu::Sampler>
-}
-
-pub struct TextureResource {
-    pub view: Arc<wgpu::TextureView>,
-    pub sampler: Arc<wgpu::Sampler>
 }
 
 #[derive(Clone, Debug)]
@@ -54,7 +77,7 @@ impl TextureBuilder {
             label: "texture".to_string(),
             img_path: None,
             data: None,
-            format: wgpu::TextureFormat::Bgra8Unorm
+            format: wgpu::TextureFormat::Rgba8Unorm
         }
     }
     
@@ -81,26 +104,41 @@ impl TextureBuilder {
         self.data = Some((width, height, data));
         self
     }
+
+    /// get the raw 
+    fn get_img_raw(&self) -> (u32, u32, Vec<u8>) {
+        self.img_path.clone()
+            .and_then(|path| {
+                match image::open(path.clone()) {
+                    Ok(image) => {
+                        let (w, h) = image.dimensions();
+                        return Some((w, h, image.to_rgba8().into_raw()));
+                    }
+                    Err(e) => {
+                        println!("[Texture Builder] An error occured when reading image file '{}': {}.", path, e);
+                        return None;
+                    }
+                }
+            })
+            .or_else(|| {
+                if let Some((w, h, data)) = self.data.clone() {
+                    return Some((w, h, data));
+                }
+                return None;
+            })
+            .unwrap_or_else(|| {
+                let pixels = vec![MAGENTA_PIX, WHITE_PIX, WHITE_PIX, MAGENTA_PIX];
+                return (2, 2, bytemuck::cast_slice(&pixels).to_vec())
+            })
+    }
 }
 
 impl ResourceBuilder for TextureBuilder {
-    type Output = TextureResource;
+    type Output = Arc<wgpu::TextureView>;
     type Context = TextureContext;
 
     fn build(&self, context: Arc<TextureContext>) -> Result<Self::Output, String> {
-        let (width, height, data) = if let Some(ref path) = self.img_path {
-            let img = match image::open(path) {
-                Ok(img) => img,
-                Err(e) => { return Err(format!("Could not open image file: {e}")); }
-            };
-
-            let (w, h) = img.dimensions();
-            (w, h, img.to_rgb8().into_raw())
-        } else if let Some((w, h, ref data)) = self.data {
-            (w, h, data.clone())
-        } else {
-            return Err("No valid data or image path specified for this TextureBuilder".to_string());
-        };
+        let (width, height, data) = self.get_img_raw();
 
         let size = wgpu::Extent3d {
             width,
@@ -135,9 +173,8 @@ impl ResourceBuilder for TextureBuilder {
             size,
         );
 
-        let view = Arc::new(texture.create_view(&wgpu::TextureViewDescriptor::default()));
-        let sampler = context.sampler.clone();
+        println!("[Texture View] Created new texture view with label '{}'", self.label);
 
-        Ok(TextureResource { view, sampler })
+        Ok(Arc::new(texture.create_view(&wgpu::TextureViewDescriptor::default())))
     }
 }

@@ -50,53 +50,42 @@ impl TextureSampler {
     pub fn get(self) -> SamplerBuilder {
         match self {
             TextureSampler::NearestRepeat => {
-                SamplerBuilder { 
-                    address_mode: wgpu::AddressMode::Repeat, 
-                    filter: wgpu::FilterMode::Nearest 
-                }
+                SamplerBuilder::new(wgpu::AddressMode::Repeat, wgpu::FilterMode::Nearest).with_label("nearest_repeat")
             },
             TextureSampler::NearestClampEdge => {
-                SamplerBuilder { 
-                    address_mode: wgpu::AddressMode::ClampToEdge, 
-                    filter: wgpu::FilterMode::Nearest 
-                }
+                SamplerBuilder::new(wgpu::AddressMode::ClampToEdge, wgpu::FilterMode::Nearest).with_label("nearest_clamp-to-edge")
             },
             TextureSampler::NearestClampBorder => {
-                SamplerBuilder { 
-                    address_mode: wgpu::AddressMode::ClampToBorder, 
-                    filter: wgpu::FilterMode::Nearest 
-                }
+                SamplerBuilder::new(wgpu::AddressMode::ClampToBorder, wgpu::FilterMode::Nearest).with_label("nearest_clamp-to-border")
             },
             TextureSampler::NearestMirrorRepeat => {
-                SamplerBuilder { 
-                    address_mode: wgpu::AddressMode::MirrorRepeat, 
-                    filter: wgpu::FilterMode::Nearest 
-                }
+                SamplerBuilder::new(wgpu::AddressMode::MirrorRepeat, wgpu::FilterMode::Nearest).with_label("nearest_mirror_repeat")
             },
             TextureSampler::LinearRepeat => {
-                SamplerBuilder { 
-                    address_mode: wgpu::AddressMode::Repeat, 
-                    filter: wgpu::FilterMode::Linear 
-                }
+                SamplerBuilder::new(wgpu::AddressMode::Repeat, wgpu::FilterMode::Linear).with_label("linear_repeat")
             },
             TextureSampler::LinearMirrorRepeat => {
-                SamplerBuilder { 
-                    address_mode: wgpu::AddressMode::MirrorRepeat, 
-                    filter: wgpu::FilterMode::Linear 
-                }
+                SamplerBuilder::new(wgpu::AddressMode::MirrorRepeat, wgpu::FilterMode::Linear).with_label("linear_mirror-repeat")
             },
             TextureSampler::LinearClampEdge => {
-                SamplerBuilder { 
-                    address_mode: wgpu::AddressMode::ClampToEdge, 
-                    filter: wgpu::FilterMode::Linear 
-                }
+                SamplerBuilder::new(wgpu::AddressMode::ClampToEdge, wgpu::FilterMode::Linear).with_label("linear_clamp-to-edge")
             },
             TextureSampler::LinearClampBorder => {
-                SamplerBuilder { 
-                    address_mode: wgpu::AddressMode::ClampToBorder, 
-                    filter: wgpu::FilterMode::Linear 
-                }
+                SamplerBuilder::new(wgpu::AddressMode::ClampToBorder, wgpu::FilterMode::Linear).with_label("linear_clamp-to-border")
             }
+        }
+    }
+
+    pub fn as_key(self) -> String {
+        match self {
+            TextureSampler::LinearClampBorder => "linear_clamp-to-border".to_string(),
+            TextureSampler::LinearClampEdge => "linear_clamp-to-edge".to_string(),
+            TextureSampler::LinearMirrorRepeat => "linear_mirror-repeat".to_string(),
+            TextureSampler::LinearRepeat => "linear_repeat".to_string(),
+            TextureSampler::NearestClampBorder => "nearest_clamp-to-border".to_string(),
+            TextureSampler::NearestClampEdge => "nearest_clamp-to-edge".to_string(),
+            TextureSampler::NearestRepeat => "nearest_repeat".to_string(),
+            TextureSampler::NearestMirrorRepeat => "nearest_mirror-repeat".to_string(),
         }
     }
 }
@@ -112,18 +101,18 @@ impl Shape2D {
     }
 
     /// Generate mesh data for a triangle
-    pub fn triangle(&mut self) -> Arc<MeshData> {
-        let key = "triangle".to_string();
+    // pub fn triangle(&mut self) -> Arc<MeshData> {
+    //     let key = "triangle".to_string();
 
-        return match self.shape_data.get(&key) {
-            Some(data) => Arc::clone(data),
-            None => {
-                let triangle = Arc::new(gen_triangle());
-                self.shape_data.store(&key, Arc::clone(&triangle));
-                Arc::clone(&triangle)
-            }
-        }
-    }
+    //     return match self.shape_data.get(&key) {
+    //         Some(data) => Arc::clone(data),
+    //         None => {
+    //             let triangle = Arc::new(gen_triangle());
+    //             self.shape_data.store(&key, Arc::clone(&triangle));
+    //             Arc::clone(&triangle)
+    //         }
+    //     }
+    // }
 
     /// Generate mesh data for a square.
     pub fn square(&mut self) -> Arc<MeshData> {
@@ -157,26 +146,26 @@ impl Shape2D {
 }
 
 /// Get raw triangle data
-pub fn gen_triangle() -> MeshData {
-    MeshData::new(
-        vec![
-            PositionVertex { position: [0.0, 0.5, 0.0] },
-            PositionVertex { position: [-0.5, -0.5, 0.0] },
-            PositionVertex { position: [0.5, -0.5, 0.0] },
-        ],
-        vec![0, 1, 2]
-    )
-    .with_label("triangle")
-}
+// pub fn gen_triangle() -> MeshData {
+//     MeshData::new(
+//         vec![
+//             PositionVertex { position: [0.0, 0.5, 0.0] },
+//             PositionVertex { position: [-0.5, -0.5, 0.0] },
+//             PositionVertex { position: [0.5, -0.5, 0.0] },
+//         ],
+//         vec![0, 1, 2]
+//     )
+//     .with_label("triangle")
+// }
 
 /// Get raw square data
 pub fn gen_square() -> MeshData  {
     MeshData::new(
         vec![
-            PositionVertex { position: [ 0.5,  0.5, 0.0] },
-            PositionVertex { position: [-0.5,  0.5, 0.0] },
-            PositionVertex { position: [-0.5, -0.5, 0.0] },
-            PositionVertex { position: [ 0.5, -0.5, 0.0] },
+            UV_Vertex { position: [ 0.5,  0.5, 0.0], uv: [1.0, 0.0] },
+            UV_Vertex { position: [-0.5,  0.5, 0.0], uv: [0.0, 0.0] },
+            UV_Vertex { position: [-0.5, -0.5, 0.0], uv: [0.0, 1.0] },
+            UV_Vertex { position: [ 0.5, -0.5, 0.0], uv: [1.0, 1.0] },
         ],
         vec![
             0, 1, 2,

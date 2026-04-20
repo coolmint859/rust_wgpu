@@ -37,19 +37,25 @@ impl Transform {
         Self { position, rotation, dimensions, world_mat, is_dirty }
     }
 
-    /// get a copy of this transform's world matrix
+    /// Set the postition of the transform relative to the world axis
+    pub fn with_position(mut self, position: Vec3) -> Self {
+        self.position = position;
+        self
+    }
+
+    /// Get a copy of this transform's world matrix
     pub fn world_matrix(&self) -> glam::Mat4 {
         self.is_dirty.set(false);
         self.world_mat.clone()
     }
 
-    /// move relative to local origin
+    /// Move relative to local origin
     pub fn translate(&mut self, amount: Vec3) {
         self.position += amount;
         self.is_dirty.set(true);
     }
 
-    /// move relative to world origin
+    /// Move relative to world origin
     pub fn move_world(&mut self, amount: Vec3) {
         self.position += self.rotation * amount;
         self.is_dirty.set(true);
@@ -73,13 +79,13 @@ impl Transform {
         self.is_dirty.set(true);
     }
 
-    /// rotate from current orientation
+    /// Rotate from current orientation
     pub fn rotate(&mut self, rotation: Quat) {
         self.rotation *= rotation;
         self.is_dirty.set(true);
     }
 
-    /// rotate from current orientation, using Euler angles
+    /// Rotate from current orientation, using Euler angles
     pub fn rotate_euler(&mut self, pitch: f32, yaw: f32, roll: f32) {
         self.rotation *= Quat::from_euler(EulerRot::YXZ, yaw, pitch, roll);
         self.is_dirty.set(true);
@@ -97,27 +103,27 @@ impl Transform {
         self.is_dirty.set(true);
     }
 
-    /// reorient this transform to 'point' to a target
+    /// Reorient this transform to 'point' to a target
     pub fn look_at(&mut self, target: Vec3, up: Vec3) {
         let look_dir = self.position - target;
         self.rotation = Quat::from_mat4(&Mat4::look_at_rh(self.position, look_dir, up.normalize()));
         self.is_dirty.set(true);
     }
 
-    /// set the scale of this transform
+    /// Set the scale of this transform
     pub fn scale(&mut self, scale: glam::Vec3) {
         self.dimensions = scale;
         self.is_dirty.set(true);
     }
 
-    /// apply this transform to a vector
+    /// Apply this transform to a vector
     pub fn apply_to(&self, vector:Vec3) -> Vec3 {
         let vec4 = Vec4::new(vector.x, vector.y, vector.z, 1.0);
         let transformed = self.world_mat.mul_vec4(vec4);
         transformed.xyz()
     }
 
-    /// check if this transform is dirty
+    /// Check if this transform is dirty
     pub fn is_dirty(&self) -> bool {
         return self.is_dirty.get()
     }

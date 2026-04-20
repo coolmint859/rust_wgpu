@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::{ AtomicU32, Ordering };
 
 use super::{
-    vertex::PositionVertex,
+    vertex::UV_Vertex,
     handler::ResourceBuilder,
     buffer::BufferBuilder,
 };
@@ -23,12 +23,12 @@ static MESH_COUNTER: AtomicU32 = AtomicU32::new(0);
 pub struct MeshData {
     id: u32,
     label: String,
-    vertex_data: Vec<PositionVertex>,
+    vertex_data: Vec<UV_Vertex>,
     index_data: Vec<u32>,
 }
 
 impl MeshData {
-    pub fn new(vertex_data: Vec<PositionVertex>, index_data: Vec<u32>) -> Self {
+    pub fn new(vertex_data: Vec<UV_Vertex>, index_data: Vec<u32>) -> Self {
         let id = DATA_COUNTER.fetch_add(1, Ordering::SeqCst);
 
         Self { label: "{id}".to_string(), id, vertex_data,  index_data }

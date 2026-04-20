@@ -3,14 +3,15 @@ use std::{collections::HashSet, sync::Arc};
 
 use glam::Mat4;
 
+use crate::graphics::texture::SamplerBuilder;
+
 use super::{
     bind_group::*, 
     buffer::BufferBuilder, 
     camera::Camera, 
     init_state::InitMode, 
     material::{Material, UniformBuilder}, 
-    mesh::{Mesh, MeshData}, 
-    presets::TextureSampler, 
+    mesh::{Mesh, MeshData},
     render_pipeline::RenderPipelineBuilder, 
     texture::TextureBuilder, 
     tracker::ResourceTracker, 
@@ -34,7 +35,8 @@ pub enum CreateCommand {
     RenderPipeline{ builder: RenderPipelineBuilder, mode: InitMode },
     Mesh { id: u32, builder: Arc<MeshData> },
     Buffer { id: String, builder: BufferBuilder },
-    Texture { id: String, builder: TextureBuilder, sampler_id: TextureSampler }
+    Texture { id: String, builder: TextureBuilder },
+    Sampler { id: String, builder: SamplerBuilder },
 }
 
 /// Command used to update uniform buffers
@@ -222,7 +224,8 @@ impl Renderer {
                 key: entity_key.to_string(),
                 binding: 0,
                 visibility: LayoutVisibility::Vertex,
-                ty: LayoutBindType::Uniform
+                ty: LayoutBindType::Uniform,
+                scope: LayoutBindScope::Entity
             });
 
         self.request_layout(entity_layout.clone());
@@ -249,12 +252,19 @@ impl Renderer {
         // create layout with full mesh + material + component keys
         let mut material_layout = BindGroupLayoutBuilder::new();
         for entry in &entity.material.get_layout().entries {
-            let full_entry_key = format!("{}::{}", entity.mesh.get_key(), entry.key);
+            let entry_key = match entry.scope {
+                LayoutBindScope::Entity => {
+                    format!("{}::{}", entity.mesh.get_key(), entry.key)
+                }
+                _ => entry.key.clone()
+            };
+
             material_layout.add_entry(LayoutEntry { 
-                key: full_entry_key, 
+                key: entry_key, 
                 binding: entry.binding, 
                 visibility: entry.visibility.clone(), 
-                ty: entry.ty.clone()
+                ty: entry.ty.clone(),
+                scope: entry.scope.clone()
             });
         }
         // request complete layout and add to pipeline
@@ -268,14 +278,23 @@ impl Renderer {
     /// TODO: Refactor to only issue an update command if a buffer already exists
     fn process_uniforms(&mut self, entity: &mut Entity) {
         let uniforms = entity.material.get_uniforms();
-        for (key, u_builder_enum) in uniforms {
-            let full_buffer_key = format!("{}::{}", entity.mesh.get_key(), key);
+        for (key, u_builder_enum, scope) in uniforms {
+            let uniform_key = match scope {
+                LayoutBindScope::Entity => {
+                    format!("{}::{}", entity.mesh.get_key(), key)
+                }
+                _ => key.clone()
+            };
+
             match u_builder_enum {
                 UniformBuilder::Buffer(builder) => {
-                    self.request_buffer(&full_buffer_key, builder);
+                    self.request_buffer(&uniform_key, builder);
                 }
-                UniformBuilder::Texture(builder, sampler_id) => {
-                    self.request_texture(&full_buffer_key, sampler_id, builder);
+                UniformBuilder::Texture(builder) => {
+                    self.request_texture(&uniform_key, builder);
+                }
+                UniformBuilder::Sampler(builder) => {
+                    self.request_sampler(&uniform_key, builder);
                 }
             }
         }
@@ -305,10 +324,17 @@ impl Renderer {
         return false
     }
 
-    /// request a create buffer command to be queued. Commands with the same key already queued will be skipped.
-    fn request_texture(&mut self, key: &String, sampler_id: TextureSampler, builder: TextureBuilder) {
+    /// request a create texture command to be queued. Commands with the same key already queued will be skipped.
+    fn request_texture(&mut self, key: &String, builder: TextureBuilder) {
         if !self.tracker.as_mut().unwrap().textures.contains(key) {
-            self.create_cmds.push(CreateCommand::Texture { id: key.clone(), builder, sampler_id });
+            self.create_cmds.push(CreateCommand::Texture { id: key.clone(), builder });
+        }
+    }
+
+    /// Request a create texture command to be queued. Commands with the same key already queued will be skipped.
+    fn request_sampler(&mut self, key: &String, builder: SamplerBuilder) {
+        if !self.tracker.as_mut().unwrap().samplers.contains(key) {
+            self.create_cmds.push(CreateCommand::Sampler { id: key.clone(), builder });
         }
     }
 

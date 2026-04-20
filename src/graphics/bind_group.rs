@@ -10,6 +10,7 @@ pub struct LayoutEntry {
     pub binding: u32,
     pub visibility: LayoutVisibility,
     pub ty: LayoutBindType,
+    pub scope: LayoutBindScope
 }
 
 /// Represents a single bind group layout entry
@@ -27,10 +28,25 @@ pub enum LayoutVisibility {
 /// Bind Group Entry layout types
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]
 pub enum LayoutBindType {
+    /// uniform buffers
     Uniform,
+    /// storage buffers
     Storage(bool),
+    /// textures and texture views
     Texture,
+    /// texture samplers
     Sampler,
+}
+
+/// Specifies the scope for which a resource should be namespaced (allows different levels of resource sharing)
+#[derive(Clone, Hash, PartialEq, Eq, Debug)]
+pub enum LayoutBindScope {
+    /// Resources are scoped to individual entities; no sharing (best used for buffers)
+    Entity,
+    /// Resources are scoped to materials; shared between entities (best used for textures)
+    Material,
+    /// Resources are globally scoped; shared everywhere (best used for samplers)
+    Global
 }
 
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]

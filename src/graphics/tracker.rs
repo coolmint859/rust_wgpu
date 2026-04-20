@@ -12,6 +12,7 @@ pub struct ResourceTracker {
     pub pipelines: HashSet<RenderPipelineBuilder>,
     pub meshes: HashSet<u32>,
     pub textures: HashSet<String>,
+    pub samplers: HashSet<String>,
 }
 
 impl ResourceTracker {
@@ -22,7 +23,8 @@ impl ResourceTracker {
             buffers: HashSet::new(),
             pipelines: HashSet::new(),
             meshes: HashSet::new(),
-            textures: HashSet::new()
+            textures: HashSet::new(),
+            samplers: HashSet::new(),
         }
     }
 
@@ -33,6 +35,8 @@ impl ResourceTracker {
         self.buffers.clear();
         self.meshes.clear();
         self.pipelines.clear();
+        self.textures.clear();
+        self.samplers.clear();
     }
 
     /// Copy the resources in another tracker into this one
@@ -51,6 +55,12 @@ impl ResourceTracker {
         }
         for buffer in &other.buffers {
             self.buffers.insert(buffer.clone());
+        }
+        for texture in &other.textures {
+            self.textures.insert(texture.clone());
+        }
+        for sampler in &other.samplers {
+            self.samplers.insert(sampler.clone());
         }
     }
 }

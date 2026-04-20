@@ -1,9 +1,10 @@
 #![allow(dead_code)]
+use wgpu::TextureView;
 use winit::window::Window;
 use std::sync::Arc;
 
 use crate::graphics::{
-    bind_group::{BindGroupBuilder, BindGroupContext, BindGroupLayoutBuilder, BindGroupResource}, core::WgpuCore, handler::{ResourceHandler, ResourceStatus}, init_state::{InitMode, StateInit}, mesh::MeshBuffer, presets::TextureSampler, render_pipeline::{RenderPipelineBuilder, RenderPipelineContext}, renderer::{CreateCommand, Renderer, UpdateCommand}, texture::{TextureBuilder, TextureContext, TextureResource}, tracker::ResourceTracker
+    bind_group::{BindGroupBuilder, BindGroupContext, BindGroupLayoutBuilder, BindGroupResource}, core::WgpuCore, handler::{ResourceHandler, ResourceStatus}, init_state::{InitMode, StateInit}, mesh::MeshBuffer, presets::TextureSampler, render_pipeline::{RenderPipelineBuilder, RenderPipelineContext}, renderer::{CreateCommand, Renderer, UpdateCommand}, texture::{TextureBuilder, TextureContext}, tracker::ResourceTracker
 };
 
 /// Group binding number for global uniforms
@@ -27,8 +28,8 @@ pub struct WgpuContext {
     bindgroup_handler: ResourceHandler<String, wgpu::BindGroup>,
     pipeline_handler: ResourceHandler<RenderPipelineBuilder, wgpu::RenderPipeline>,
     buffer_handler: ResourceHandler<String, Arc<wgpu::Buffer>>,
-    texture_handler: ResourceHandler<String, TextureResource>,
-    sampler_handler: ResourceHandler<TextureSampler, Arc<wgpu::Sampler>>
+    texture_handler: ResourceHandler<String, Arc<TextureView>>,
+    sampler_handler: ResourceHandler<String, Arc<wgpu::Sampler>>
 }
 
 impl WgpuContext {
@@ -50,11 +51,18 @@ impl WgpuContext {
         }
     }
 
-    fn init_samplers(core: &WgpuCore) -> ResourceHandler<TextureSampler, Arc<wgpu::Sampler>> {
+    fn init_samplers(core: &WgpuCore) -> ResourceHandler<String, Arc<wgpu::Sampler>> {
         let mut sampler_handler = ResourceHandler::new();
-
-        let _ = sampler_handler.request_wait(&TextureSampler::LinearRepeat, &TextureSampler::LinearRepeat.get(), Arc::clone(&core.device));
-        let _ = sampler_handler.request_wait(&TextureSampler::NearestRepeat, &TextureSampler::NearestRepeat.get(), Arc::clone(&core.device));
+        let _ = sampler_handler.request_wait(
+            &TextureSampler::LinearRepeat.as_key(), 
+            &TextureSampler::LinearRepeat.get(), 
+            Arc::clone(&core.device)
+        );
+        let _ = sampler_handler.request_wait(
+            &TextureSampler::NearestRepeat.as_key(), 
+            &TextureSampler::NearestRepeat.get(), 
+            Arc::clone(&core.device)
+        );
 
         sampler_handler
     }
@@ -124,14 +132,21 @@ impl WgpuContext {
 
         let mut resource_pairs = Vec::with_capacity(bind_keys.len());
         for (key, bind_slot) in &bind_keys {
+            // check for buffer
             if let Some(buffer) = self.buffer_handler.get(&key) {
                 resource_pairs.push((bind_slot.clone(), BindGroupResource::Buffer(Arc::clone(buffer))))
             }
-            if let Some(tex_resource) = self.texture_handler.get(&key) {
-                resource_pairs.push((bind_slot.clone(), BindGroupResource::Texture(Arc::clone(&tex_resource.view))));
-                resource_pairs.push((bind_slot.clone() + 1, BindGroupResource::Sampler(Arc::clone(&tex_resource.sampler))));
+            // check for texture
+            if let Some(texture_view) = self.texture_handler.get(&key) {
+                resource_pairs.push((bind_slot.clone(), BindGroupResource::Texture(Arc::clone(&texture_view))));
+            }
+            // check for sampler
+            if let Some(sampler) = self.sampler_handler.get(&key) {
+                resource_pairs.push((bind_slot.clone(), BindGroupResource::Sampler(Arc::clone(&sampler))));
             }
         }
+
+        // println!("found resources: {:?}, expected respources: {:?}", resource_pairs, bind_keys);
 
         // all resources found, safe to create bind group
         if resource_pairs.len() == bind_keys.len() {
@@ -151,17 +166,14 @@ impl WgpuContext {
     }
 
     /// initialize a new texture request
-    fn init_texture(&mut self, key: &String, builder: &TextureBuilder, sampler_id: &TextureSampler) {
-        if let Some(sampler) = self.sampler_handler.get(sampler_id) {
-            let context = Arc::new(TextureContext {
-                device: Arc::clone(&self.core.device),
-                queue: Arc::clone(&self.core.queue),
-                sampler: Arc::clone(sampler)
-            });
+    fn init_texture(&mut self, key: &String, builder: &TextureBuilder) {
+        let context = Arc::new(TextureContext {
+            device: Arc::clone(&self.core.device),
+            queue: Arc::clone(&self.core.queue),
+        });
 
-            self.tracker.buffers.insert(key.clone());
-            self.texture_handler.request_new(&key, builder, context);
-        }
+        self.tracker.buffers.insert(key.clone());
+        self.texture_handler.request_new(&key, builder, context);
     }
 
     /// Prepare the context for the next frame
@@ -171,6 +183,8 @@ impl WgpuContext {
         self.pipeline_handler.sync();
         self.bindgroup_handler.sync();
         self.buffer_handler.sync();
+        self.texture_handler.sync();
+        self.sampler_handler.sync();
 
         self.core.window.request_redraw();
     }
@@ -202,8 +216,12 @@ impl WgpuContext {
                     self.tracker.buffers.insert(id.clone());
                     self.buffer_handler.request_new(&id, builder, Arc::clone(&self.core.device));
                 },
-                CreateCommand::Texture { id, builder, sampler_id } => {
-                    self.init_texture(id, builder, sampler_id);
+                CreateCommand::Texture { id, builder } => {
+                    self.init_texture(id, builder);
+                }
+                CreateCommand::Sampler { id, builder } => {
+                    self.tracker.samplers.insert(id.clone());
+                    self.sampler_handler.request_new(&id, builder, Arc::clone(&self.core.device));
                 }
                 CreateCommand::BindGroupLayout { builder } => {
                     self.tracker.bg_layouts.insert(builder.clone());
@@ -287,6 +305,11 @@ impl WgpuContext {
             let pip_status = self.pipeline_handler.status_of(&draw_cmd.rpip_id);
             let mat_u_status = self.bindgroup_handler.status_of(&draw_cmd.material_key);
             let mesh_u_status = self.bindgroup_handler.status_of(&draw_cmd.entity_key);
+
+            // println!("mesh ready? {}", mesh_status.is_some());
+            // println!("pipeline ready? {}", pip_status.is_some());
+            // println!("material ready? {}", mat_u_status.is_some());
+            // println!("transform ready? {}", mesh_u_status.is_some());
 
             if let (Some(ResourceStatus::Ready(mesh)), 
                     Some(ResourceStatus::Ready(pipeline)), 

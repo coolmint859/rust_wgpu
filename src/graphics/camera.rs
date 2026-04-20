@@ -124,7 +124,8 @@ impl Camera for Camera2D {
                 key: self.get_key(),
                 binding: 0,
                 visibility: LayoutVisibility::VertexFragment,
-                ty: LayoutBindType::Uniform
+                ty: LayoutBindType::Uniform,
+                scope: LayoutBindScope::Entity
             })
     }
 
