@@ -15,3 +15,4 @@ pub mod texture;
 pub mod buffer;
 pub mod tracker;
 pub mod material;
+pub mod entity;

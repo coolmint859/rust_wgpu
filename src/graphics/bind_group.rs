@@ -6,11 +6,9 @@ use super::handler::ResourceBuilder;
 /// Represents a single bind group layout entry
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]
 pub struct LayoutEntry {
-    pub key: String,
     pub binding: u32,
     pub visibility: LayoutVisibility,
     pub ty: LayoutBindType,
-    pub scope: LayoutBindScope
 }
 
 /// Represents a single bind group layout entry
@@ -36,17 +34,6 @@ pub enum LayoutBindType {
     Texture,
     /// texture samplers
     Sampler,
-}
-
-/// Specifies the scope for which a resource should be namespaced (allows different levels of resource sharing)
-#[derive(Clone, Hash, PartialEq, Eq, Debug)]
-pub enum LayoutBindScope {
-    /// Resources are scoped to individual entities; no sharing (best used for buffers)
-    Entity,
-    /// Resources are scoped to materials; shared between entities (best used for textures)
-    Material,
-    /// Resources are globally scoped; shared everywhere (best used for samplers)
-    Global
 }
 
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]
@@ -86,17 +73,6 @@ impl BindGroupLayoutBuilder {
             if entry.binding == bind_slot { return true }
         }
         return false;
-    }
-
-    /// Get this layout's bindings as a vector of key-binding pairs
-    pub fn get_bindings(&self) -> Vec<(String, u32)> {
-        let mut bindings = Vec::new();
-
-        for entry in &self.entries {
-            bindings.push((entry.key.clone(), entry.binding));
-        }
-
-        bindings
     }
 
     /// helper function to create a binding type

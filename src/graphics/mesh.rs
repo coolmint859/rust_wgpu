@@ -52,7 +52,9 @@ impl MeshData {
         )
     }
 
-    pub fn id(&self) -> u32 { self.id.clone() }
+    pub fn id(&self) -> u32 {
+        self.id
+    }
 }
 
 /// Allows us to treat the mesh data as if it was a regular resource builder

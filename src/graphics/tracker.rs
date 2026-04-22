@@ -1,18 +1,20 @@
 #![allow(dead_code)]
 use std::collections::HashSet;
 
-use crate::graphics::{bind_group::BindGroupLayoutBuilder, render_pipeline::RenderPipelineBuilder};
+use crate::graphics::{bind_group::BindGroupLayoutBuilder, render_pipeline::RenderPipelineBuilder, wpgu_context::ResourceID};
 
 /// Tracks resource requests, allowing the transient Renderer to optimize it's command generation
 #[derive(Clone, Debug)]
 pub struct ResourceTracker {
     pub bg_layouts: HashSet<BindGroupLayoutBuilder>,
-    pub bind_groups: HashSet<String>,
-    pub buffers: HashSet<String>,
     pub pipelines: HashSet<RenderPipelineBuilder>,
+
+    pub bind_groups: HashSet<String>,
     pub meshes: HashSet<u32>,
-    pub textures: HashSet<String>,
-    pub samplers: HashSet<String>,
+    
+    pub buffers: HashSet<ResourceID>,
+    pub textures: HashSet<ResourceID>,
+    pub samplers: HashSet<ResourceID>,
 }
 
 impl ResourceTracker {

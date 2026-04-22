@@ -35,12 +35,12 @@ impl RenderPipeline {
 /// Represents a sampler with a specific address and filter mode, as supported by wgpu
 #[derive(Hash, Eq, PartialEq, Clone, Debug)]
 pub enum TextureSampler {
-    NearestClampEdge,
-    NearestClampBorder,
+    NearestClampToEdge,
+    NearestClampToBorder,
     NearestRepeat,
     NearestMirrorRepeat,
-    LinearClampEdge,
-    LinearClampBorder,
+    LinearClampToEdge,
+    LinearClampToBorder,
     LinearRepeat,
     LinearMirrorRepeat,
 }
@@ -49,41 +49,50 @@ impl TextureSampler {
     /// Get the SamplerBuilder that this TextureSampler represents
     pub fn get(self) -> SamplerBuilder {
         match self {
+            TextureSampler::NearestClampToEdge => {
+                SamplerBuilder::new(wgpu::AddressMode::ClampToEdge, wgpu::FilterMode::Nearest)
+                    .with_label(&TextureSampler::NearestClampToEdge.as_key())
+            },
+            TextureSampler::NearestClampToBorder => {
+                SamplerBuilder::new(wgpu::AddressMode::ClampToBorder, wgpu::FilterMode::Nearest)
+                    .with_label(&TextureSampler::NearestClampToBorder.as_key())
+            },
             TextureSampler::NearestRepeat => {
-                SamplerBuilder::new(wgpu::AddressMode::Repeat, wgpu::FilterMode::Nearest).with_label("nearest_repeat")
-            },
-            TextureSampler::NearestClampEdge => {
-                SamplerBuilder::new(wgpu::AddressMode::ClampToEdge, wgpu::FilterMode::Nearest).with_label("nearest_clamp-to-edge")
-            },
-            TextureSampler::NearestClampBorder => {
-                SamplerBuilder::new(wgpu::AddressMode::ClampToBorder, wgpu::FilterMode::Nearest).with_label("nearest_clamp-to-border")
+                SamplerBuilder::new(wgpu::AddressMode::Repeat, wgpu::FilterMode::Nearest)
+                    .with_label(&TextureSampler::NearestRepeat.as_key())
             },
             TextureSampler::NearestMirrorRepeat => {
-                SamplerBuilder::new(wgpu::AddressMode::MirrorRepeat, wgpu::FilterMode::Nearest).with_label("nearest_mirror_repeat")
+                SamplerBuilder::new(wgpu::AddressMode::MirrorRepeat, wgpu::FilterMode::Nearest)
+                    .with_label(&TextureSampler::NearestMirrorRepeat.as_key())
             },
+            TextureSampler::LinearClampToEdge => {
+                SamplerBuilder::new(wgpu::AddressMode::ClampToEdge, wgpu::FilterMode::Linear)
+                    .with_label(&TextureSampler::LinearClampToEdge.as_key())
+            },
+            TextureSampler::LinearClampToBorder => {
+                SamplerBuilder::new(wgpu::AddressMode::ClampToBorder, wgpu::FilterMode::Linear)
+                    .with_label(&TextureSampler::LinearClampToBorder.as_key())
+            }
             TextureSampler::LinearRepeat => {
-                SamplerBuilder::new(wgpu::AddressMode::Repeat, wgpu::FilterMode::Linear).with_label("linear_repeat")
+                SamplerBuilder::new(wgpu::AddressMode::Repeat, wgpu::FilterMode::Linear)
+                    .with_label(&TextureSampler::LinearRepeat.as_key())
             },
             TextureSampler::LinearMirrorRepeat => {
-                SamplerBuilder::new(wgpu::AddressMode::MirrorRepeat, wgpu::FilterMode::Linear).with_label("linear_mirror-repeat")
+                SamplerBuilder::new(wgpu::AddressMode::MirrorRepeat, wgpu::FilterMode::Linear)
+                    .with_label(&TextureSampler::LinearMirrorRepeat.as_key())
             },
-            TextureSampler::LinearClampEdge => {
-                SamplerBuilder::new(wgpu::AddressMode::ClampToEdge, wgpu::FilterMode::Linear).with_label("linear_clamp-to-edge")
-            },
-            TextureSampler::LinearClampBorder => {
-                SamplerBuilder::new(wgpu::AddressMode::ClampToBorder, wgpu::FilterMode::Linear).with_label("linear_clamp-to-border")
-            }
         }
     }
 
+    /// Get this sampler as it's key name
     pub fn as_key(self) -> String {
         match self {
-            TextureSampler::LinearClampBorder => "linear_clamp-to-border".to_string(),
-            TextureSampler::LinearClampEdge => "linear_clamp-to-edge".to_string(),
+            TextureSampler::LinearClampToBorder => "linear_clamp-to-border".to_string(),
+            TextureSampler::LinearClampToEdge => "linear_clamp-to-edge".to_string(),
             TextureSampler::LinearMirrorRepeat => "linear_mirror-repeat".to_string(),
             TextureSampler::LinearRepeat => "linear_repeat".to_string(),
-            TextureSampler::NearestClampBorder => "nearest_clamp-to-border".to_string(),
-            TextureSampler::NearestClampEdge => "nearest_clamp-to-edge".to_string(),
+            TextureSampler::NearestClampToBorder => "nearest_clamp-to-border".to_string(),
+            TextureSampler::NearestClampToEdge => "nearest_clamp-to-edge".to_string(),
             TextureSampler::NearestRepeat => "nearest_repeat".to_string(),
             TextureSampler::NearestMirrorRepeat => "nearest_mirror-repeat".to_string(),
         }

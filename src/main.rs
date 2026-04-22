@@ -29,7 +29,7 @@ pub struct App<T> {
 impl<T: AppState> App<T> {
     pub fn new(app_state: T, attributes: WindowAttributes) -> Self {
         Self { 
-            default_cam: Camera2D::new("default_camera"),
+            default_cam: Camera2D::new("default-camera"),
             wgpu_ctx: None, 
             prev_time: time::Instant::now(),
             elapsed_time: 0.0, 

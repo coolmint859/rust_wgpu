@@ -3,46 +3,37 @@ use std::{collections::HashSet, sync::Arc};
 
 use glam::Mat4;
 
-use crate::graphics::texture::SamplerBuilder;
+use crate::graphics::{entity::Entity, texture::SamplerBuilder, wpgu_context::{ResourceBinding, ResourceID, ResourceScope}};
 
 use super::{
     bind_group::*, 
     buffer::BufferBuilder, 
     camera::Camera, 
     init_state::InitMode, 
-    material::{Material, UniformBuilder}, 
-    mesh::{Mesh, MeshData},
+    material::UniformBuilder, 
+    mesh::MeshData,
     render_pipeline::RenderPipelineBuilder, 
     texture::TextureBuilder, 
-    tracker::ResourceTracker, 
-    transform::Transform, 
+    tracker::ResourceTracker,
     wpgu_context::{GLOBAL_UNIFORMS, INSTANCE_UNIFORMS, MATERIAL_UNIFORMS}
 };
-
-/// Simple data stuct used to consolidate rendering properties
-pub struct Entity {
-    pub mesh: Mesh,
-    pub transform: Transform,
-    pub material: Arc<Material>,
-    pub pipeline: RenderPipelineBuilder
-}
 
 /// Commands used for creating resources
 #[derive(Clone, Debug)]
 pub enum CreateCommand {
     BindGroupLayout{ builder: BindGroupLayoutBuilder },
-    BindGroup{ id: String, layout_id: BindGroupLayoutBuilder }, // bind group builders are made by the context
+    BindGroup{ id: String, layout_id: BindGroupLayoutBuilder, resource_ids: Vec<ResourceBinding> }, // bind group builders are made by the context
     RenderPipeline{ builder: RenderPipelineBuilder, mode: InitMode },
     Mesh { id: u32, builder: Arc<MeshData> },
-    Buffer { id: String, builder: BufferBuilder },
-    Texture { id: String, builder: TextureBuilder },
-    Sampler { id: String, builder: SamplerBuilder },
+    Buffer { id: ResourceID, builder: BufferBuilder },
+    Texture { id: ResourceID, builder: TextureBuilder },
+    Sampler { id: ResourceID, builder: SamplerBuilder },
 }
 
 /// Command used to update uniform buffers
 #[derive(Clone, Debug)]
 pub struct UpdateCommand {
-    pub key: String, 
+    pub key: ResourceID, 
     pub data: Vec<u8> 
 }
 
@@ -50,11 +41,11 @@ pub struct UpdateCommand {
 #[derive(Clone, Debug)]
 pub struct DrawCommand {
     /// used to get the vertex/index buffers
-    pub id: u32,
+    pub mesh_id: u32,
     /// used to get the mesh's bind group
-    pub entity_key: String,
+    pub entity_group: String,
     /// used to get the material's bind group
-    pub material_key: String,
+    pub material_group: String,
     /// used to get the render pipeline
     pub rpip_id: RenderPipelineBuilder,
     /// used for z-ordering
@@ -91,8 +82,8 @@ pub struct Renderer {
 
     // general frame settings
     clear_color: wgpu::Color,
-    camera_key: String,
-    camera_layout: Option<BindGroupLayoutBuilder>,
+    globals_id: ResourceID,
+    globals_layout: Option<BindGroupLayoutBuilder>,
     elapsed_time: f32,
 
     // tracker for preventing unnecessary command generation
@@ -107,8 +98,8 @@ impl Renderer {
             draw_cmds: Vec::new(),
             update_cmds: Vec::new(),
             clear_color: wgpu::Color::BLACK,
-            camera_key: "".to_string(),
-            camera_layout: None,
+            globals_id: ResourceID { key: "".to_string(), scope: ResourceScope::Global },
+            globals_layout: None,
             elapsed_time,
             tracker: Some(tracker)
         }
@@ -138,7 +129,7 @@ impl Renderer {
 
     /// Get the currently set camera's key
     pub fn get_camera_key(&self) -> String {
-        self.camera_key.clone()
+        self.globals_id.key.clone()
     }
 
     // Set the background color for the frame
@@ -155,18 +146,26 @@ impl Renderer {
     pub fn set_camera<C: Camera>(&mut self, camera: &mut C) {
         camera.update();
 
-        let camera_key = camera.get_key();
+        let camera_id = ResourceID { 
+            key: camera.get_key(), 
+            scope: ResourceScope::Global 
+        };
+        let camera_group = ResourceBinding {
+            id: camera_id.clone(),
+            slot: 0
+        };
+
         self.request_layout(camera.get_layout_builder());
         self.request_global_uniforms(camera);
-        self.request_bind_group(&camera_key, camera.get_layout_builder());
+        self.request_bind_group(&camera_id.key, camera.get_layout_builder(), vec![camera_group]);
 
-        self.camera_key = camera_key;
-        self.camera_layout = Some(camera.get_layout_builder());
+        self.globals_id = camera_id;
+        self.globals_layout = Some(camera.get_layout_builder());
     }
 
     /// request/create global uniform data from the current camera
     fn request_global_uniforms<C: Camera>(&mut self, camera: &mut C) {
-        let camera_key = camera.get_key();
+        let camera_id = camera.get_key();
 
         let globals = GlobalUniforms {
             view_proj: camera.get_view_proj_mat().to_cols_array(),
@@ -174,12 +173,13 @@ impl Renderer {
             elapsed_time: self.elapsed_time,
         };
 
-        let key = camera_key.clone();
         let builder = BufferBuilder::as_uniform(0)
-            .with_label(&camera_key)
+            .with_label(&camera_id)
             .with_data_from_struct(globals);
 
         // if a buffer wasn't just requested, issue an update command
+        
+        let key = ResourceID { key: camera_id.clone(), scope: ResourceScope::Global };
         if !self.request_buffer(&key, builder) {
             self.update_cmds.push(UpdateCommand { 
                 key: key.clone(), data: BufferBuilder::to_padded_vec(globals),
@@ -190,25 +190,21 @@ impl Renderer {
     /// Draw an object using the given transform and material to the current texture
     /// 
     /// TODO: untangle layout key from bind group key to allow similar materials to share layouts
-    pub fn draw(&mut self, entity: &mut Entity) {
-        let entity_key = format!("{}::uniforms", entity.mesh.get_key());
-        let material_key = format!("{}::{}", entity.mesh.get_key(), entity.material.get_key());
-        
+    pub fn draw(&mut self, entity: &mut Entity) {        
         let mut pipeline = entity.pipeline.clone();
-        pipeline.add_bg_layout(GLOBAL_UNIFORMS, self.camera_layout.as_mut().unwrap().clone());
+        pipeline.add_bg_layout(GLOBAL_UNIFORMS, self.globals_layout.as_mut().unwrap().clone());
         
         self.request_mesh(entity.mesh.get_data_builder());
-        self.process_material(entity, &mut pipeline, &material_key);
-        self.process_transform(entity, &mut pipeline, &entity_key);
-        self.process_uniforms(entity);
+        self.process_transform(entity, &mut pipeline);
+        self.process_uniforms(entity, &mut pipeline);
 
         self.request_render_pipeline(pipeline.clone());
 
         self.draw_cmds.push(
             DrawCommand {
-                id: entity.mesh.get_data_key(),
-                entity_key,
-                material_key,
+                mesh_id: entity.mesh.get_data_key(),
+                entity_group: entity.id().key,
+                material_group: entity.get_namespace_id().key,
                 rpip_id: pipeline,
                 z_depth: entity.transform.position.z,
             }
@@ -216,21 +212,13 @@ impl Renderer {
     }
 
     /// Request an entity's transform layout and buffer 
-    fn process_transform(&mut self, entity: &mut Entity, pipeline: &mut RenderPipelineBuilder, entity_key: &String) {
-        // create layout and add to pipeline
-        let entity_layout = BindGroupLayoutBuilder::new()
-            .with_label(entity_key)
-            .with_entry(LayoutEntry {
-                key: entity_key.to_string(),
-                binding: 0,
-                visibility: LayoutVisibility::Vertex,
-                ty: LayoutBindType::Uniform,
-                scope: LayoutBindScope::Entity
-            });
+    fn process_transform(&mut self, entity: &mut Entity, pipeline: &mut RenderPipelineBuilder) {
+        let entity_id = entity.id();
+        let entity_layout = entity.transform_layout();
 
         self.request_layout(entity_layout.clone());
         pipeline.add_bg_layout(INSTANCE_UNIFORMS, entity_layout.clone());
-        self.request_bind_group(entity_key, entity_layout);
+        self.request_bind_group(&entity_id.key, entity_layout, vec![entity.transform_binding()]);
 
         // update buffers if transform had changed (is guarenteed to on first frame)
         if entity.transform.update() {
@@ -238,70 +226,56 @@ impl Renderer {
                 model_mat: entity.transform.world_matrix()
             };
             let uniform_builder = BufferBuilder::as_uniform(0)
-                .with_label(entity_key)
+                .with_label(&entity_id.key)
                 .with_data_from_struct(entity_uniforms.clone());
-            self.request_buffer(entity_key, uniform_builder);
+            self.request_buffer(&entity_id, uniform_builder);
 
             let data = BufferBuilder::to_padded_vec(entity_uniforms);
-            self.update_cmds.push(UpdateCommand { key: entity_key.clone(), data });
+            self.update_cmds.push(UpdateCommand { key: entity_id.clone(), data });
         }
-    }
-
-    // tie material components to mesh and request layout
-    fn process_material(&mut self, entity: &mut Entity, pipeline: &mut RenderPipelineBuilder, material_key: &String) {
-        // create layout with full mesh + material + component keys
-        let mut material_layout = BindGroupLayoutBuilder::new();
-        for entry in &entity.material.get_layout().entries {
-            let entry_key = match entry.scope {
-                LayoutBindScope::Entity => {
-                    format!("{}::{}", entity.mesh.get_key(), entry.key)
-                }
-                _ => entry.key.clone()
-            };
-
-            material_layout.add_entry(LayoutEntry { 
-                key: entry_key, 
-                binding: entry.binding, 
-                visibility: entry.visibility.clone(), 
-                ty: entry.ty.clone(),
-                scope: entry.scope.clone()
-            });
-        }
-        // request complete layout and add to pipeline
-        self.request_layout(material_layout.clone()); // layout is it's own key
-        self.request_bind_group(&material_key, material_layout.clone());
-        pipeline.add_bg_layout(MATERIAL_UNIFORMS,material_layout);
     }
 
     /// Process an entity's material uniforms
-    /// 
-    /// TODO: Refactor to only issue an update command if a buffer already exists
-    fn process_uniforms(&mut self, entity: &mut Entity) {
-        let uniforms = entity.material.get_uniforms();
-        for (key, u_builder_enum, scope) in uniforms {
-            let uniform_key = match scope {
-                LayoutBindScope::Entity => {
-                    format!("{}::{}", entity.mesh.get_key(), key)
+    fn process_uniforms(&mut self, entity: &mut Entity, pipeline: &mut RenderPipelineBuilder) {
+        fn namespace_id(entity: &Entity, resource_key: &String) -> String {
+            format!("{}::{}", entity.id().key, resource_key)
+        }
+
+        let mut bindings: Vec<ResourceBinding> = Vec::new();
+        for (binding, u_builder_enum) in entity.material.get_uniforms() {
+            let mut uniform_id = binding.id.clone();
+            match binding.id.scope {
+                ResourceScope::Entity => {
+                    uniform_id.key = namespace_id(entity, &uniform_id.key);
                 }
-                _ => key.clone()
+                _ => {}
             };
 
             match u_builder_enum {
                 UniformBuilder::Buffer(builder) => {
-                    self.request_buffer(&uniform_key, builder);
+                    self.request_buffer(&uniform_id, builder);
                 }
                 UniformBuilder::Texture(builder) => {
-                    self.request_texture(&uniform_key, builder);
+                    self.request_texture(&uniform_id, builder);
                 }
                 UniformBuilder::Sampler(builder) => {
-                    self.request_sampler(&uniform_key, builder);
+                    self.request_sampler(&uniform_id, builder);
                 }
             }
+
+            bindings.push(binding);
         }
 
-        let most_recent_data = entity.material.get_buffers_updated();
-        for (key, data) in most_recent_data {
-            self.update_cmds.push(UpdateCommand { key, data });
+        // request complete layout and add to pipeline
+        let material_layout = entity.material.get_layout();
+        self.request_layout(material_layout.clone());
+        self.request_bind_group(&entity.get_namespace_id().key, material_layout.clone(), bindings);
+        pipeline.add_bg_layout(MATERIAL_UNIFORMS,material_layout);
+
+        for (mut uniform_id, data) in entity.material.get_buffers_updated() {
+            uniform_id.key = namespace_id(entity, &uniform_id.key);
+
+            self.update_cmds.push(UpdateCommand { key: uniform_id, data });
         }
     }
 
@@ -316,7 +290,7 @@ impl Renderer {
     }
 
     /// request a create buffer command to be queued. Commands with the same key already queued will be skipped.
-    fn request_buffer(&mut self, key: &String, builder: BufferBuilder) -> bool {
+    fn request_buffer(&mut self, key: &ResourceID, builder: BufferBuilder) -> bool {
         if !self.tracker.as_mut().unwrap().buffers.contains(key) {
             self.create_cmds.push(CreateCommand::Buffer { id: key.clone(), builder });
             return true;
@@ -325,14 +299,14 @@ impl Renderer {
     }
 
     /// request a create texture command to be queued. Commands with the same key already queued will be skipped.
-    fn request_texture(&mut self, key: &String, builder: TextureBuilder) {
+    fn request_texture(&mut self, key: &ResourceID, builder: TextureBuilder) {
         if !self.tracker.as_mut().unwrap().textures.contains(key) {
             self.create_cmds.push(CreateCommand::Texture { id: key.clone(), builder });
         }
     }
 
     /// Request a create texture command to be queued. Commands with the same key already queued will be skipped.
-    fn request_sampler(&mut self, key: &String, builder: SamplerBuilder) {
+    fn request_sampler(&mut self, key: &ResourceID, builder: SamplerBuilder) {
         if !self.tracker.as_mut().unwrap().samplers.contains(key) {
             self.create_cmds.push(CreateCommand::Sampler { id: key.clone(), builder });
         }
@@ -359,11 +333,12 @@ impl Renderer {
     }
 
     /// request a create bind group command to be queued. Commands with the same key already queued will be skipped.
-    fn request_bind_group(&mut self, key: &String, layout_id: BindGroupLayoutBuilder) {
+    fn request_bind_group(&mut self, key: &String, layout_id: BindGroupLayoutBuilder, resource_ids: Vec<ResourceBinding>) {
         if !self.tracker.as_mut().unwrap().bind_groups.contains(key) {
             self.create_cmds.push(CreateCommand::BindGroup { 
                 id: key.clone(),
                 layout_id,
+                resource_ids,
             });
         }
     }

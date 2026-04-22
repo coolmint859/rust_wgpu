@@ -119,13 +119,11 @@ impl Camera for Camera2D {
 
     fn get_layout_builder(&self) -> BindGroupLayoutBuilder {
         BindGroupLayoutBuilder::new()
-            .with_label(&self.key)
+            .with_label("camera-2d")
             .with_entry(LayoutEntry {
-                key: self.get_key(),
                 binding: 0,
                 visibility: LayoutVisibility::VertexFragment,
                 ty: LayoutBindType::Uniform,
-                scope: LayoutBindScope::Entity
             })
     }
 
