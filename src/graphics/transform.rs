@@ -13,33 +13,45 @@ pub const LOCAL_FORWARD:Vec3 =  Vec3::new(0.0, 0.0, 1.0);
 pub struct Transform {
     pub position: Vec3,
     pub rotation: Quat,
-    pub dimensions: Vec3,
+    pub scale: Vec3,
 
     world_mat:Mat4,
     is_dirty: Cell<bool>,
 }
 
 impl Transform {
-    pub fn new(position:Vec3, rotation:Quat, dimensions:Vec3) -> Self {
-        let world_mat = Mat4::from_scale_rotation_translation(dimensions, rotation, position);
+    pub fn new(position: Vec3, rotation: Quat, scale: Vec3) -> Self {
+        let world_mat = Mat4::from_scale_rotation_translation(scale, rotation, position);
         let is_dirty = Cell::new(true);
-        Self { position, rotation, dimensions, world_mat, is_dirty }
+        Self { position, rotation, scale, world_mat, is_dirty }
     }
 
     /// Create a transform that 'faces' the z-axis at the origin with scale 1
     pub fn default() -> Self {
         let position = Vec3::ZERO;
         let rotation = Quat::IDENTITY;
-        let dimensions = Vec3::ONE;
+        let scale = Vec3::ONE;
 
-        let world_mat = Mat4::from_scale_rotation_translation(dimensions, rotation, position);
+        let world_mat = Mat4::from_scale_rotation_translation(scale, rotation, position);
         let is_dirty = Cell::new(true);
-        Self { position, rotation, dimensions, world_mat, is_dirty }
+        Self { position, rotation, scale, world_mat, is_dirty }
     }
 
     /// Set the postition of the transform relative to the world axis
     pub fn with_position(mut self, position: Vec3) -> Self {
         self.position = position;
+        self
+    }
+
+    /// Set the scale of the transform
+    pub fn with_scale(mut self, scale: Vec3) -> Self {
+        self.scale = scale;
+        self
+    }
+
+    /// Set the rotation of the transform relative to the local center
+    pub fn with_rotation(mut self, rotation: Quat) -> Self {
+        self.rotation = rotation;
         self
     }
 
@@ -112,7 +124,7 @@ impl Transform {
 
     /// Set the scale of this transform
     pub fn scale(&mut self, scale: glam::Vec3) {
-        self.dimensions = scale;
+        self.scale = scale;
         self.is_dirty.set(true);
     }
 
@@ -133,7 +145,7 @@ impl Transform {
     /// Returns true if the transform had changed this frame, false otherwise
     pub fn update(&mut self) -> bool {
         if self.is_dirty() {
-            self.world_mat = Mat4::from_scale_rotation_translation(self.dimensions, self.rotation, self.position);
+            self.world_mat = Mat4::from_scale_rotation_translation(self.scale, self.rotation, self.position);
             self.is_dirty.set(false);
             return true;
         }

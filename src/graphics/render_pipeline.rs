@@ -3,8 +3,8 @@ use std::{borrow::Cow, sync::Arc};
 
 use super::{
     bind_group::BindGroupLayoutBuilder, 
-    handler::ResourceBuilder, 
-    vertex::Vertex,
+    handler::ResourceBuilder,
+    vertex::VertexLayoutBuilder
 };
 
 /// Houses the environment needed to construct rendering pipelines
@@ -26,9 +26,7 @@ pub struct RenderPipelineBuilder {
     vs_main: String,
     fs_main: String,
 
-    vertex_stride: u64,
-    vertex_attribs: Vec<wgpu::VertexAttribute>,
-
+    vertex_builder: VertexLayoutBuilder,
     layout_ids: Vec<BindGroupLayoutBuilder>,
     topology: wgpu::PrimitiveTopology,
 
@@ -37,15 +35,14 @@ pub struct RenderPipelineBuilder {
 }
 
 impl RenderPipelineBuilder {
-    pub fn new<V: Vertex>(shader_path: &str, layout_count: usize) -> Self {
+    pub fn new(shader_path: &str, layout_count: usize, vertex_builder: VertexLayoutBuilder) -> Self {
         let layout_ids = vec![BindGroupLayoutBuilder::new(); layout_count];
         Self {
             label: "default-pipeline".to_string(),
             shader_path: shader_path.to_string(),
             vs_main: "vs_main".to_string(),
             fs_main: "fs_main".to_string(),
-            vertex_stride: std::mem::size_of::<V>() as u64,
-            vertex_attribs: V::attributes(),
+            vertex_builder: vertex_builder,
             layout_ids: layout_ids,
             topology: wgpu::PrimitiveTopology::TriangleList,
             blend_state: Some(wgpu::BlendState::REPLACE),
@@ -120,6 +117,11 @@ impl RenderPipelineBuilder {
         self
     }
 
+    /// Get this pipeline's vertex layout builder
+    pub fn vertex_layout(&self) -> VertexLayoutBuilder {
+        self.vertex_builder.clone()
+    }
+
     /// Get the current set layout ids
     pub(crate) fn get_layout_ids(&self) -> Vec<BindGroupLayoutBuilder> {
         self.layout_ids.clone()
@@ -160,11 +162,7 @@ impl ResourceBuilder for RenderPipelineBuilder {
         let vertex = wgpu::VertexState {
             module: &shader,
             entry_point: Some(&self.vs_main),
-            buffers: &[wgpu::VertexBufferLayout {
-                array_stride: self.vertex_stride,
-                attributes: &self.vertex_attribs.as_slice(),
-                step_mode: wgpu::VertexStepMode::Vertex
-            }],
+            buffers: &[self.vertex_builder.build(().into()).unwrap()],
             compilation_options: wgpu::PipelineCompilationOptions::default(),
         };
 

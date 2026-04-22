@@ -16,3 +16,4 @@ pub mod buffer;
 pub mod tracker;
 pub mod material;
 pub mod entity;
+pub mod shape_factory;

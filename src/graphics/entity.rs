@@ -12,9 +12,9 @@ pub struct Entity {
 
 impl Entity {
     /// get the unique id for this entity
-    pub fn id(&self) -> ResourceID {
+    pub fn transform_id(&self) -> ResourceID {
         ResourceID {
-            key: format!("{}::uniforms", self.mesh.get_key()),
+            key: format!("{}::transform", self.mesh.get_key()),
             scope: ResourceScope::Entity
         }
     }
@@ -22,7 +22,7 @@ impl Entity {
     /// Get the resource binding for this entity's transform
     pub fn transform_binding(&self) -> ResourceBinding {
         ResourceBinding {
-            id: self.id(),
+            id: self.transform_id(),
             slot: 0
         }
     }

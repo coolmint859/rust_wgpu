@@ -1,18 +1,18 @@
 #![allow(dead_code)]
-use std::{collections::HashMap, sync::Arc};
 
-use glam::Vec3;
+use glam::{Quat, Vec3};
 
 const PI: f32 = 3.1415;
 
 use crate::graphics::{
-    camera::{Camera, Camera2D}, entity::Entity, init_state::StateInit, material::{Material, SamplerComponent, TextureComponent}, mesh::Mesh, presets::{RenderPipeline, Shape2D, TextureSampler}, renderer::Renderer, traits::AppState, transform::Transform
+    camera::{Camera, Camera2D}, entity::Entity, init_state::StateInit, mesh::Mesh, presets::{MaterialPreset, RenderPipeline}, renderer::Renderer, shape_factory::Shape2D, traits::AppState, transform::Transform
 };
 
 pub struct Game {
     // shapes: Vec<Mesh<ColoredSprite>>,
     square1: Entity,
     square2: Entity,
+    square3: Entity,
     camera: Camera2D,
 }
 
@@ -21,53 +21,31 @@ impl Game {
         let camera = Camera2D::new("camera-2d");
         let mut shape_factory = Shape2D::new();
 
-        // square 1
-        let mut map = HashMap::new();
-        map.insert("happy_tree_tex".to_string(), 0);
-        map.insert(TextureSampler::NearestClampToEdge.as_key(), 1);
-
-        let mut material = Material::new("colored-sprite", map.clone());
-        match material.add_component(TextureComponent::new("happy_tree_tex", "./assets/happy-tree.png")) {
-            Err(msg) => panic!("{}", msg),
-            _ => {}
-        }
-        match material.add_component(SamplerComponent::new(TextureSampler::NearestClampToEdge).with_bind_slot(1)) {
-            Err(msg) => panic!("{}", msg),
-            _ => {}
-        }
-        let material = Arc::new(material);
+        let tex_pipeline = RenderPipeline::TexturedSprite.get();
+        let color_pipeline = RenderPipeline::ColoredSprite.get();
 
         let square1 = Entity { 
-            mesh: Mesh::new("happy_tree", shape_factory.square()), 
-            transform: Transform::default().with_position(Vec3 {x: -0.6, y: 0.0, z: 0.0 }), 
-            material, 
-            pipeline: RenderPipeline::TexturedSprite.get() 
+            mesh: Mesh::new("happy_tree", shape_factory.square(tex_pipeline.vertex_layout())), 
+            transform: Transform::new(Vec3 {x: -0.6, y: 0.3, z: 0.0 }, Quat::IDENTITY, Vec3 { x: 0.3, y: 0.3, z: 1.0 }), 
+            material: MaterialPreset::TexturedSprite("./assets/happy-tree.png").with_label("happy_tree"),
+            pipeline: tex_pipeline.clone()
         };
-
-        // square 2
-        let mut map = HashMap::new();
-        map.insert("blue_devils_tex".to_string(), 0);
-        map.insert(TextureSampler::NearestClampToEdge.as_key(), 1);
-
-        let mut material = Material::new("colored-sprite", map);
-        match material.add_component(TextureComponent::new("blue_devils_tex", "./assets/BlueDevilsLogo.png")) {
-            Err(msg) => panic!("{}", msg),
-            _ => {}
-        }
-        match material.add_component(SamplerComponent::new(TextureSampler::NearestClampToEdge).with_bind_slot(1)) {
-            Err(msg) => panic!("{}", msg),
-            _ => {}
-        }
-        let material = Arc::new(material);
 
         let square2 = Entity { 
-            mesh: Mesh::new("blue_devils", shape_factory.square()),
-            transform: Transform::default().with_position(Vec3 {x: 0.6, y: 0.0, z: 0.0 }),
-            material, 
-            pipeline: RenderPipeline::TexturedSprite.get() 
+            mesh: Mesh::new("blue_devils", shape_factory.square(tex_pipeline.vertex_layout())),
+            transform: Transform::new(Vec3 {x: 0.6, y: 0.3, z: 0.0 }, Quat::IDENTITY, Vec3 { x: 0.3, y: 0.3, z: 1.0 }),
+            material: MaterialPreset::TexturedSprite("./assets/BlueDevilsLogo.png").with_label("blue_devils"),
+            pipeline: tex_pipeline.clone()
         };
 
-        Self { square1, square2, camera }
+        let square3 = Entity {
+            mesh: Mesh::new("blue_square", shape_factory.square(color_pipeline.vertex_layout())),
+            transform: Transform::new(Vec3 {x: 0.0, y: -0.3, z: 0.0 }, Quat::IDENTITY, Vec3 { x: 0.3, y: 0.3, z: 1.0 }),
+            material: MaterialPreset::ColoredSprite([0.0, 0.0, 1.0, 1.0]).with_label("bluey"),
+            pipeline: color_pipeline
+        };
+
+        Self { square1, square2, square3, camera }
     }
 }
 
@@ -92,5 +70,6 @@ impl AppState for Game {
 
         renderer.draw(&mut self.square1);
         renderer.draw(&mut self.square2);
+        renderer.draw(&mut self.square3);
     }
 } 

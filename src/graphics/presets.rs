@@ -1,13 +1,47 @@
 #![allow(dead_code)]
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use crate::graphics::{
-   handler::ResourceHandler, 
-   mesh::MeshData, 
+   material::{ColorComponent, Material, SamplerComponent, TextureComponent},
    render_pipeline::RenderPipelineBuilder, 
    texture::SamplerBuilder, 
-   vertex::{PositionVertex, UV_Vertex}
+   vertex::{VertexAttribute, VertexLayoutBuilder}
 };
+
+/// preset material configurations
+pub enum MaterialPreset {
+    /// A material with a single color uniform
+    ColoredSprite ([f32; 4]),
+    /// A material with a single texture uniform (and sampler)
+    TexturedSprite (&'static str),
+}
+
+impl MaterialPreset {
+    pub fn with_label(self, label: &str) -> Arc<Material> {
+        match self {
+            MaterialPreset::ColoredSprite(color) => {
+                let mut map = HashMap::new();
+                map.insert(label.to_string(), 0);
+
+                let mut material = Material::new("colored-sprite", map.clone());
+                let _ = material.add_component(ColorComponent::new(label, color));
+
+                Arc::new(material)
+            }
+            MaterialPreset::TexturedSprite(path) => {
+                let mut map = HashMap::new();
+                map.insert(label.to_string(), 0);
+                map.insert(TextureSampler::NearestClampToEdge.as_key(), 1);
+
+                let mut material = Material::new("textured-sprite", map.clone());
+                let _ = material.add_component(TextureComponent::new(label, path));
+                let _ = material.add_component(SamplerComponent::new(TextureSampler::NearestClampToEdge).with_bind_slot(1));
+
+                Arc::new(material)
+            }
+        }
+    }
+}
 
 /// Preset rendering pipelines
 pub enum RenderPipeline {
@@ -17,16 +51,20 @@ pub enum RenderPipeline {
 }
 
 impl RenderPipeline {
-    /// RGet the RenderPipelineBuilder that this RenderPipeline represents
+    /// Get the RenderPipelineBuilder that this RenderPipeline represents
     pub fn get(self) -> RenderPipelineBuilder {
         return match self {
             RenderPipeline::ColoredSprite => {
                 let path = "src/graphics/shaders/colored_sprite.wgsl";
-                RenderPipelineBuilder::new::<PositionVertex>(path, 3).with_label("colored-sprite")
+                let vertex_builder = VertexLayoutBuilder::with_position();
+
+                RenderPipelineBuilder::new(path, 3, vertex_builder).with_label("colored-sprite")
             }
             RenderPipeline::TexturedSprite => {
                 let path = "src/graphics/shaders/textured_sprite.wgsl";
-                RenderPipelineBuilder::new::<UV_Vertex>(path, 3).with_label("textured-sprite")
+                let vertex_builder = VertexLayoutBuilder::with_position().with_attribute(VertexAttribute::UV);
+
+                RenderPipelineBuilder::new(path, 3, vertex_builder).with_label("textured-sprite")
             }
         }
     }
@@ -98,93 +136,3 @@ impl TextureSampler {
         }
     }
 }
-
-/// Generates and stores 2D shapes
-pub struct Shape2D {
-    shape_data: ResourceHandler<String, Arc<MeshData>>,
-}
-
-impl Shape2D {
-    pub fn new() -> Self {
-        Self { shape_data: ResourceHandler::new() }
-    }
-
-    /// Generate mesh data for a triangle
-    // pub fn triangle(&mut self) -> Arc<MeshData> {
-    //     let key = "triangle".to_string();
-
-    //     return match self.shape_data.get(&key) {
-    //         Some(data) => Arc::clone(data),
-    //         None => {
-    //             let triangle = Arc::new(gen_triangle());
-    //             self.shape_data.store(&key, Arc::clone(&triangle));
-    //             Arc::clone(&triangle)
-    //         }
-    //     }
-    // }
-
-    /// Generate mesh data for a square.
-    pub fn square(&mut self) -> Arc<MeshData> {
-        let key = "square".to_string();
-        
-        return match self.shape_data.get(&key) {
-            Some(data) => Arc::clone(data),
-            None => {
-                let square = Arc::new(gen_square());
-                self.shape_data.store(&key, Arc::clone(&square));
-                Arc::clone(&square)
-            }
-        }
-    }
-
-    // /// Generate mesh data for a polygon
-    // pub fn polygon(&mut self, num_sides: u32)  -> Arc<MeshData> {
-    //     let key = format!("polygon{}", num_sides);
-        
-    //     return match self.shape_data.get(&key) {
-    //         Some(data) => Arc::clone(data),
-    //         None => {
-    //             self.shape_data.store(
-    //                 &key, 
-    //                 Arc::new(gen_square())
-    //             );
-    //             Arc::clone(self.shape_data.get(&key).unwrap())
-    //         }
-    //     }
-    // }
-}
-
-/// Get raw triangle data
-// pub fn gen_triangle() -> MeshData {
-//     MeshData::new(
-//         vec![
-//             PositionVertex { position: [0.0, 0.5, 0.0] },
-//             PositionVertex { position: [-0.5, -0.5, 0.0] },
-//             PositionVertex { position: [0.5, -0.5, 0.0] },
-//         ],
-//         vec![0, 1, 2]
-//     )
-//     .with_label("triangle")
-// }
-
-/// Get raw square data
-pub fn gen_square() -> MeshData  {
-    MeshData::new(
-        vec![
-            UV_Vertex { position: [ 0.5,  0.5, 0.0], uv: [1.0, 0.0] },
-            UV_Vertex { position: [-0.5,  0.5, 0.0], uv: [0.0, 0.0] },
-            UV_Vertex { position: [-0.5, -0.5, 0.0], uv: [0.0, 1.0] },
-            UV_Vertex { position: [ 0.5, -0.5, 0.0], uv: [1.0, 1.0] },
-        ],
-        vec![
-            0, 1, 2,
-            2, 3, 0
-        ]
-    )
-    .with_label("square")
-}
-
-// /// Get raw polygon data
-// pub fn gen_polygon() -> MeshData {
-
-// }

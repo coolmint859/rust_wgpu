@@ -178,7 +178,6 @@ impl Renderer {
             .with_data_from_struct(globals);
 
         // if a buffer wasn't just requested, issue an update command
-        
         let key = ResourceID { key: camera_id.clone(), scope: ResourceScope::Global };
         if !self.request_buffer(&key, builder) {
             self.update_cmds.push(UpdateCommand { 
@@ -203,7 +202,7 @@ impl Renderer {
         self.draw_cmds.push(
             DrawCommand {
                 mesh_id: entity.mesh.get_data_key(),
-                entity_group: entity.id().key,
+                entity_group: entity.transform_id().key,
                 material_group: entity.get_namespace_id().key,
                 rpip_id: pipeline,
                 z_depth: entity.transform.position.z,
@@ -213,7 +212,7 @@ impl Renderer {
 
     /// Request an entity's transform layout and buffer 
     fn process_transform(&mut self, entity: &mut Entity, pipeline: &mut RenderPipelineBuilder) {
-        let entity_id = entity.id();
+        let entity_id = entity.transform_id();
         let entity_layout = entity.transform_layout();
 
         self.request_layout(entity_layout.clone());
@@ -238,11 +237,11 @@ impl Renderer {
     /// Process an entity's material uniforms
     fn process_uniforms(&mut self, entity: &mut Entity, pipeline: &mut RenderPipelineBuilder) {
         fn namespace_id(entity: &Entity, resource_key: &String) -> String {
-            format!("{}::{}", entity.id().key, resource_key)
+            format!("{}::{}", entity.mesh.get_key(), resource_key)
         }
 
         let mut bindings: Vec<ResourceBinding> = Vec::new();
-        for (binding, u_builder_enum) in entity.material.get_uniforms() {
+        for (mut binding, u_builder_enum) in entity.material.get_uniforms() {
             let mut uniform_id = binding.id.clone();
             match binding.id.scope {
                 ResourceScope::Entity => {
@@ -263,6 +262,7 @@ impl Renderer {
                 }
             }
 
+            binding.id = uniform_id;
             bindings.push(binding);
         }
 

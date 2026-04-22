@@ -194,13 +194,9 @@ impl MaterialComponent for ColorComponent {
     }
 
     fn get_uniform_builder(&self) -> UniformBuilder {
-        let data = BufferBuilder::to_padded_vec(
-            ColorUniform { color: self.color }
-        );
-
         let builder = BufferBuilder::as_uniform(0)
             .with_label(&self.label)
-            .with_data(data);
+            .with_data_from_struct(ColorUniform { color: self.color });
 
         UniformBuilder::Buffer(builder)
     }

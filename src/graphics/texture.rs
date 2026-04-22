@@ -77,7 +77,7 @@ impl TextureBuilder {
             label: "texture".to_string(),
             img_path: None,
             data: None,
-            format: wgpu::TextureFormat::Rgba8Unorm
+            format: wgpu::TextureFormat::Rgba8UnormSrgb
         }
     }
     

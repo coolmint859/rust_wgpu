@@ -5,14 +5,6 @@ use super::handler::ResourceBuilder;
 
 /// Represents a single bind group layout entry
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]
-pub struct LayoutEntry {
-    pub binding: u32,
-    pub visibility: LayoutVisibility,
-    pub ty: LayoutBindType,
-}
-
-/// Represents a single bind group layout entry
-#[derive(Clone, Hash, PartialEq, Eq, Debug)]
 /// The shader stages the bind group is visible to
 pub enum LayoutVisibility {
     /// Bind group is visible to the vertex stage
@@ -34,6 +26,14 @@ pub enum LayoutBindType {
     Texture,
     /// texture samplers
     Sampler,
+}
+
+/// Represents a single bind group layout entry
+#[derive(Clone, Hash, PartialEq, Eq, Debug)]
+pub struct LayoutEntry {
+    pub binding: u32,
+    pub visibility: LayoutVisibility,
+    pub ty: LayoutBindType,
 }
 
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]

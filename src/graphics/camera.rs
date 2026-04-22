@@ -119,7 +119,7 @@ impl Camera for Camera2D {
 
     fn get_layout_builder(&self) -> BindGroupLayoutBuilder {
         BindGroupLayoutBuilder::new()
-            .with_label("camera-2d")
+            .with_label("global-uniforms")
             .with_entry(LayoutEntry {
                 binding: 0,
                 visibility: LayoutVisibility::VertexFragment,
