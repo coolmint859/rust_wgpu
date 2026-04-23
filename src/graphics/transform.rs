@@ -68,8 +68,8 @@ impl Transform {
     }
 
     /// Move relative to world origin
-    pub fn move_world(&mut self, amount: Vec3) {
-        self.position += self.rotation * amount;
+    pub fn move_to(&mut self, position: Vec3) {
+        self.position = position;
         self.is_dirty.set(true);
     }
 

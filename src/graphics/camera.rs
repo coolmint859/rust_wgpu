@@ -56,7 +56,7 @@ impl Camera2D {
 
     /// Define a Camera2D with an initial position
     pub fn with_position(mut self, position: Vec3) -> Self {
-        self.transform.move_world(position);
+        self.transform.move_to(position);
         self
     }
 
@@ -80,7 +80,7 @@ impl Camera2D {
 
     /// Move the camera relative the world origin
     pub fn move_to(&mut self, position: Vec2) {
-        self.transform.move_world(Vec3::new(position.x, position.y, 0.0));
+        self.transform.move_to(Vec3::new(position.x, position.y, 0.0));
         self.is_dirty.set(true);
     }
 

@@ -47,8 +47,11 @@ impl MaterialPreset {
 pub enum RenderPipeline {
     /// Simple 2D colored sprite rendering pipeline
     ColoredSprite,
+    /// 2D textured sprite rendering pipeline
     TexturedSprite,
+    /// 2D colored sprite pipeline for multiple instances
     ColoredSpriteInstanced,
+    /// 2D textured sprite pipeline for multiple instances
     TexturedSpriteInstanced,
 }
 
@@ -66,7 +69,9 @@ impl RenderPipeline {
                 let path = "src/graphics/shaders/textured_sprite.wgsl";
                 let vertex_builder = VertexLayoutBuilder::with_position().with_attribute(VertexAttribute::UV);
 
-                RenderPipelineBuilder::new(path, 3, vertex_builder).with_label("textured-sprite")
+                RenderPipelineBuilder::new(path, 3, vertex_builder)
+                    .with_label("textured-sprite")
+                    .with_alpha_blending()
             }
             RenderPipeline::ColoredSpriteInstanced => {
                 let path = "src/graphics/shaders/colored_sprite_instanced.wgsl";
@@ -85,6 +90,18 @@ impl RenderPipeline {
                 RenderPipelineBuilder::new(path, 2, vertex_builder)
                     .with_label("textured-sprite-instanced")
                     .with_vertex_layout(transform_builder)
+                    .with_custom_blending( wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::SrcAlpha,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        }
+                    })
             }
         }
     }

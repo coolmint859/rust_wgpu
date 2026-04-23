@@ -85,7 +85,7 @@ impl VertexLayoutBuilder {
 }
 
 impl ResourceBuilder for VertexLayoutBuilder {
-    type Context = u32; // no context needed
+    type Context = u32;
     type Output = (u32, wgpu::VertexBufferLayout<'static>);
 
     fn build(&self, start_location: Arc<u32>) -> Result<Self::Output, String> {

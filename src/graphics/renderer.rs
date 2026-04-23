@@ -22,7 +22,7 @@ use super::{
 #[derive(Clone, Debug)]
 pub enum CreateCommand {
     BindGroupLayout{ builder: BindGroupLayoutBuilder },
-    BindGroup{ id: String, layout_id: BindGroupLayoutBuilder, resource_ids: Vec<ResourceBinding> }, // bind group builders are made by the context
+    BindGroup{ id: String, layout_id: BindGroupLayoutBuilder, resource_ids: Vec<ResourceBinding> },
     RenderPipeline{ builder: RenderPipelineBuilder, mode: InitMode },
     Mesh { id: u32, builder: Arc<MeshData> },
     Buffer { id: ResourceID, builder: BufferBuilder },
@@ -209,9 +209,7 @@ impl Renderer {
         }
     }
 
-    /// Draw an object using the given transform and material to the current texture
-    /// 
-    /// TODO: untangle layout key from bind group key to allow similar materials to share layouts
+    /// Draw an entity to the current texture
     pub fn draw(&mut self, entity: &mut Entity) {        
         let mut pipeline = entity.pipeline.clone();
         pipeline.add_bg_layout(GLOBAL_UNIFORMS, self.globals_layout.as_mut().unwrap().clone());
@@ -238,7 +236,10 @@ impl Renderer {
         );
     }
 
+    /// Draw many instances of an entity to the current texture
     pub fn draw_instances(&mut self, instances: &mut EntityInstances) {
+        if instances.transforms.is_empty() { return; }
+
         let mut pipeline = instances.pipeline.clone();
         pipeline.add_bg_layout(GLOBAL_UNIFORMS, self.globals_layout.as_mut().unwrap().clone());
         
