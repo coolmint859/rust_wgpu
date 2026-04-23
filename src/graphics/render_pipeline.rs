@@ -27,6 +27,7 @@ pub struct RenderPipelineBuilder {
     fs_main: String,
 
     vertex_builder: VertexLayoutBuilder,
+    additional_builders: Vec<VertexLayoutBuilder>,
     layout_ids: Vec<BindGroupLayoutBuilder>,
     topology: wgpu::PrimitiveTopology,
 
@@ -35,14 +36,15 @@ pub struct RenderPipelineBuilder {
 }
 
 impl RenderPipelineBuilder {
-    pub fn new(shader_path: &str, layout_count: usize, vertex_builder: VertexLayoutBuilder) -> Self {
-        let layout_ids = vec![BindGroupLayoutBuilder::new(); layout_count];
+    pub fn new(shader_path: &str, num_bind_groups: usize, vertex_builder: VertexLayoutBuilder) -> Self {
+        let layout_ids = vec![BindGroupLayoutBuilder::new(); num_bind_groups];
         Self {
             label: "default-pipeline".to_string(),
             shader_path: shader_path.to_string(),
             vs_main: "vs_main".to_string(),
             fs_main: "fs_main".to_string(),
             vertex_builder: vertex_builder,
+            additional_builders: Vec::new(),
             layout_ids: layout_ids,
             topology: wgpu::PrimitiveTopology::TriangleList,
             blend_state: Some(wgpu::BlendState::REPLACE),
@@ -77,6 +79,12 @@ impl RenderPipelineBuilder {
     /// Add a bind group layout to the render pipeline
     pub fn with_bg_layout(mut self, group: u32, id: BindGroupLayoutBuilder) -> Self {
         self.layout_ids[group as usize] = id;
+        self
+    }
+
+    /// Add an additional vertex layout to the pipeline
+    pub fn with_vertex_layout(mut self, vertex_builder: VertexLayoutBuilder) -> Self {
+        self.additional_builders.push(vertex_builder);
         self
     }
 
@@ -118,13 +126,31 @@ impl RenderPipelineBuilder {
     }
 
     /// Get this pipeline's vertex layout builder
-    pub fn vertex_layout(&self) -> VertexLayoutBuilder {
+    pub fn primary_vertex_layouts(&self) -> VertexLayoutBuilder {
         self.vertex_builder.clone()
     }
 
     /// Get the current set layout ids
     pub(crate) fn get_layout_ids(&self) -> Vec<BindGroupLayoutBuilder> {
         self.layout_ids.clone()
+    }
+
+    /// create the vertex layouts from the provided builders
+    fn build_vertex_layouts(&self) -> Vec<wgpu::VertexBufferLayout<'static>> {
+        let mut layouts = Vec::new();
+        let mut currect_loc = 0;
+
+        let (loc, vertex_layout) = self.vertex_builder.build(Arc::new(currect_loc)).unwrap();
+        layouts.push(vertex_layout);
+        currect_loc = loc;
+
+        for builder in &self.additional_builders {
+            let (next_loc, layout ) = builder.build(Arc::new(currect_loc)).unwrap();
+            layouts.push(layout);
+            currect_loc = next_loc;
+        }
+
+        layouts
     }
 }
 
@@ -162,7 +188,7 @@ impl ResourceBuilder for RenderPipelineBuilder {
         let vertex = wgpu::VertexState {
             module: &shader,
             entry_point: Some(&self.vs_main),
-            buffers: &[self.vertex_builder.build(().into()).unwrap()],
+            buffers: &self.build_vertex_layouts(),
             compilation_options: wgpu::PipelineCompilationOptions::default(),
         };
 

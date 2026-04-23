@@ -3,7 +3,7 @@ use std::{collections::HashSet, sync::Arc};
 
 use glam::Mat4;
 
-use crate::graphics::{entity::Entity, texture::SamplerBuilder, wpgu_context::{ResourceBinding, ResourceID, ResourceScope}};
+use crate::graphics::{entity::{Entity, EntityInstances, EntityTrait}, material::Material, texture::SamplerBuilder, wpgu_context::{ResourceBinding, ResourceID, ResourceScope}};
 
 use super::{
     bind_group::*, 
@@ -52,6 +52,21 @@ pub struct DrawCommand {
     pub z_depth: f32,
 }
 
+/// Command used to draw multiple instances of a mesh to the current texture
+#[derive(Clone, Debug)]
+pub struct InstanceCommand {
+    /// used to get the vertex/index buffers
+    pub mesh_id: u32,
+    /// used to get the material's bind group
+    pub material_group: String,
+    /// used to get the transform buffer
+    pub transform_id: ResourceID,
+    /// used to get the render pipeline
+    pub rpip_id: RenderPipelineBuilder,
+    /// the number of instances to draw,
+    pub instances: u32,
+}
+
 /// Uniforms that are global to the entire scene
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -61,10 +76,10 @@ pub struct GlobalUniforms {
     elapsed_time: f32,
 }
 
-// Uniforms that belong to an entity instance
+/// Transform data that belong to an entity instance
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct EntityUniforms {
+pub struct InstanceTransform {
     model_mat: Mat4
 }
 
@@ -78,6 +93,7 @@ pub struct Renderer {
     // commands
     create_cmds: Vec<CreateCommand>,
     draw_cmds: Vec<DrawCommand>,
+    instance_cmds: Vec<InstanceCommand>,
     update_cmds: Vec<UpdateCommand>,
 
     // general frame settings
@@ -96,6 +112,7 @@ impl Renderer {
             submitted_layouts: HashSet::new(),
             create_cmds: Vec::new(),
             draw_cmds: Vec::new(),
+            instance_cmds: Vec::new(),
             update_cmds: Vec::new(),
             clear_color: wgpu::Color::BLACK,
             globals_id: ResourceID { key: "".to_string(), scope: ResourceScope::Global },
@@ -110,11 +127,17 @@ impl Renderer {
         self.create_cmds.clear();
         self.update_cmds.clear();
         self.draw_cmds.clear();
+        self.instance_cmds.clear();
     }
 
     /// Get the draw commands from this renderer
     pub fn draw_cmds(&self) -> &Vec<DrawCommand> {
         &self.draw_cmds
+    }
+
+    /// Get the draw instances command from this renderer
+    pub fn instance_cmds(&self) -> &Vec<InstanceCommand> {
+        &self.instance_cmds
     }
 
     /// Get the update commands from this renderer
@@ -195,7 +218,12 @@ impl Renderer {
         
         self.request_mesh(entity.mesh.get_data_builder());
         self.process_transform(entity, &mut pipeline);
-        self.process_uniforms(entity, &mut pipeline);
+        self.process_uniforms(
+            entity.mesh.get_key(),
+            entity.namespace_id().key,
+            &entity.material, 
+            &mut pipeline
+        );
 
         self.request_render_pipeline(pipeline.clone());
 
@@ -203,9 +231,35 @@ impl Renderer {
             DrawCommand {
                 mesh_id: entity.mesh.get_data_key(),
                 entity_group: entity.transform_id().key,
-                material_group: entity.get_namespace_id().key,
+                material_group: entity.namespace_id().key,
                 rpip_id: pipeline,
                 z_depth: entity.transform.position.z,
+            }
+        );
+    }
+
+    pub fn draw_instances(&mut self, instances: &mut EntityInstances) {
+        let mut pipeline = instances.pipeline.clone();
+        pipeline.add_bg_layout(GLOBAL_UNIFORMS, self.globals_layout.as_mut().unwrap().clone());
+        
+        self.request_mesh(instances.mesh.get_data_builder());
+        self.process_instance_transforms(instances);
+        self.process_uniforms(
+            instances.mesh.get_key(),
+            instances.namespace_id().key,
+            &instances.material, 
+            &mut pipeline
+        );
+
+        self.request_render_pipeline(pipeline.clone());
+
+        self.instance_cmds.push(
+            InstanceCommand {
+                mesh_id: instances.mesh.get_data_key(),
+                transform_id: instances.transform_id(),
+                material_group: instances.namespace_id().key,
+                rpip_id: pipeline,
+                instances: instances.transforms.len() as u32
             }
         );
     }
@@ -221,7 +275,7 @@ impl Renderer {
 
         // update buffers if transform had changed (is guarenteed to on first frame)
         if entity.transform.update() {
-            let entity_uniforms = EntityUniforms {
+            let entity_uniforms = InstanceTransform {
                 model_mat: entity.transform.world_matrix()
             };
             let uniform_builder = BufferBuilder::as_uniform(0)
@@ -234,18 +288,46 @@ impl Renderer {
         }
     }
 
+    /// Process transforms from multiple instances
+    fn process_instance_transforms(&mut self, instances: &mut EntityInstances) {
+        let entity_id = instances.transform_id();
+        let mut transform_bytes = Vec::new();
+
+        for transform in &mut instances.transforms {
+            transform.update();
+            let instance_transform = InstanceTransform {
+                model_mat: transform.world_matrix()
+            };
+
+            transform_bytes.extend_from_slice(&bytemuck::bytes_of(&instance_transform));
+        }
+
+        let transform_builder = BufferBuilder::as_vertex(0)
+            .with_label(&entity_id.key)
+            .with_data(transform_bytes.clone());
+        self.request_buffer(&entity_id, transform_builder);
+
+        self.update_cmds.push(UpdateCommand { key: entity_id.clone(), data: transform_bytes });
+    }
+
     /// Process an entity's material uniforms
-    fn process_uniforms(&mut self, entity: &mut Entity, pipeline: &mut RenderPipelineBuilder) {
-        fn namespace_id(entity: &Entity, resource_key: &String) -> String {
-            format!("{}::{}", entity.mesh.get_key(), resource_key)
+    fn process_uniforms(
+        &mut self,
+        mesh_key: String,
+        namespace_key: String,
+        material: &Material,
+        pipeline: &mut RenderPipelineBuilder) 
+    {
+        fn namespace_id(mesh_key: &String, resource_key: &String) -> String {
+            format!("{}::{}", mesh_key, resource_key)
         }
 
         let mut bindings: Vec<ResourceBinding> = Vec::new();
-        for (mut binding, u_builder_enum) in entity.material.get_uniforms() {
+        for (mut binding, u_builder_enum) in material.get_uniforms() {
             let mut uniform_id = binding.id.clone();
             match binding.id.scope {
                 ResourceScope::Entity => {
-                    uniform_id.key = namespace_id(entity, &uniform_id.key);
+                    uniform_id.key = namespace_id(&mesh_key, &uniform_id.key);
                 }
                 _ => {}
             };
@@ -267,13 +349,13 @@ impl Renderer {
         }
 
         // request complete layout and add to pipeline
-        let material_layout = entity.material.get_layout();
+        let material_layout = material.get_layout();
         self.request_layout(material_layout.clone());
-        self.request_bind_group(&entity.get_namespace_id().key, material_layout.clone(), bindings);
+        self.request_bind_group(&namespace_key, material_layout.clone(), bindings);
         pipeline.add_bg_layout(MATERIAL_UNIFORMS,material_layout);
 
-        for (mut uniform_id, data) in entity.material.get_buffers_updated() {
-            uniform_id.key = namespace_id(entity, &uniform_id.key);
+        for (mut uniform_id, data) in material.get_buffers_updated() {
+            uniform_id.key = namespace_id(&mesh_key, &uniform_id.key);
 
             self.update_cmds.push(UpdateCommand { key: uniform_id, data });
         }

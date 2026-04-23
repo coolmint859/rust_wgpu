@@ -48,6 +48,8 @@ pub enum RenderPipeline {
     /// Simple 2D colored sprite rendering pipeline
     ColoredSprite,
     TexturedSprite,
+    ColoredSpriteInstanced,
+    TexturedSpriteInstanced,
 }
 
 impl RenderPipeline {
@@ -65,6 +67,24 @@ impl RenderPipeline {
                 let vertex_builder = VertexLayoutBuilder::with_position().with_attribute(VertexAttribute::UV);
 
                 RenderPipelineBuilder::new(path, 3, vertex_builder).with_label("textured-sprite")
+            }
+            RenderPipeline::ColoredSpriteInstanced => {
+                let path = "src/graphics/shaders/colored_sprite_instanced.wgsl";
+                let vertex_builder = VertexLayoutBuilder::with_position();
+                let transform_builder = VertexLayoutBuilder::with_transform();
+
+                RenderPipelineBuilder::new(path, 2, vertex_builder)
+                    .with_label("colored-sprite-instanced")
+                    .with_vertex_layout(transform_builder)
+            },
+            RenderPipeline::TexturedSpriteInstanced => {
+                let path = "src/graphics/shaders/textured_sprite_instanced.wgsl";
+                let vertex_builder = VertexLayoutBuilder::with_position().with_attribute(VertexAttribute::UV);
+                let transform_builder = VertexLayoutBuilder::with_transform();
+
+                RenderPipelineBuilder::new(path, 2, vertex_builder)
+                    .with_label("textured-sprite-instanced")
+                    .with_vertex_layout(transform_builder)
             }
         }
     }

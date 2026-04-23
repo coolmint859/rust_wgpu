@@ -42,7 +42,8 @@ impl GeometryBuilder {
                         if let Some(uv) = vertex.uv {
                             vertex_data.extend_from_slice(bytemuck::cast_slice(&uv));
                         }
-                    }
+                    },
+                    _ => {}, // skip non-vertex specific attributes
                 }
             }
         } else {

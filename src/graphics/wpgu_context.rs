@@ -323,7 +323,8 @@ impl WgpuContext {
 
             // draw meshes to current texture
             render_pass.set_bind_group(GLOBAL_UNIFORMS, camera_group, &[]);
-            self.draw_meshes(&renderer, &mut render_pass);
+            self.draw_single(&renderer, &mut render_pass);
+            self.draw_instances(&renderer, &mut render_pass);
         }
 
         self.core.queue.submit(std::iter::once(encoder.finish()));
@@ -333,7 +334,7 @@ impl WgpuContext {
     }
 
     /// draw meshes to the current texture using the provided render pass
-    fn draw_meshes(&mut self, renderer: &Renderer, render_pass: &mut wgpu::RenderPass) {
+    fn draw_single(&mut self, renderer: &Renderer, render_pass: &mut wgpu::RenderPass) {
         for draw_cmd in renderer.draw_cmds() {
             let mesh_status = self.mesh_handler.status_of(&draw_cmd.mesh_id);
             let pip_status = self.pipeline_handler.status_of(&draw_cmd.rpip_id.clone());
@@ -356,6 +357,33 @@ impl WgpuContext {
                 render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                 render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 render_pass.draw_indexed(0..mesh.num_indices, 0, 0..1);
+            }
+        }
+    }
+
+    fn draw_instances(&mut self, renderer: &Renderer, render_pass: &mut wgpu::RenderPass) {
+        for insance_cmd in renderer.instance_cmds() {
+            let mesh_status = self.mesh_handler.status_of(&insance_cmd.mesh_id);
+            let pip_status = self.pipeline_handler.status_of(&insance_cmd.rpip_id.clone());
+            let mat_u_status = self.bindgroup_handler.status_of(&insance_cmd.material_group.clone());
+            let transforms_status = self.buffer_handler.status_of(&insance_cmd.transform_id);
+
+            // println!("mesh ready? {}", mesh_status.is_some());
+            // println!("pipeline ready? {}", pip_status.is_some());
+            // println!("material ready? {}", mat_u_status.is_some());
+            // println!("transforms ready? {}", transforms_status.is_some());
+
+            if let (Some(ResourceStatus::Ready(mesh)), 
+                    Some(ResourceStatus::Ready(pipeline)), 
+                    Some(ResourceStatus::Ready(mat_uniforms)),
+                    Some(ResourceStatus::Ready(instance_buffer))) = (mesh_status, pip_status, mat_u_status, transforms_status) 
+            {
+                render_pass.set_pipeline(pipeline);
+                render_pass.set_bind_group(MATERIAL_UNIFORMS, mat_uniforms, &[]);
+                render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                render_pass.set_vertex_buffer(1, instance_buffer.slice(..));
+                render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass.draw_indexed(0..mesh.num_indices, 0, 0..insance_cmd.instances);
             }
         }
     }
