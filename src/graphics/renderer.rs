@@ -196,7 +196,7 @@ impl Renderer {
             elapsed_time: self.elapsed_time,
         };
 
-        let builder = BufferBuilder::as_uniform(0)
+        let builder = BufferBuilder::as_uniform()
             .with_label(&camera_id)
             .with_data_from_struct(globals);
 
@@ -279,7 +279,7 @@ impl Renderer {
             let entity_uniforms = InstanceTransform {
                 model_mat: entity.transform.world_matrix()
             };
-            let uniform_builder = BufferBuilder::as_uniform(0)
+            let uniform_builder = BufferBuilder::as_uniform()
                 .with_label(&entity_id.key)
                 .with_data_from_struct(entity_uniforms.clone());
             self.request_buffer(&entity_id, uniform_builder);
@@ -303,11 +303,14 @@ impl Renderer {
             transform_bytes.extend_from_slice(&bytemuck::bytes_of(&instance_transform));
         }
 
-        let transform_builder = BufferBuilder::as_vertex(0)
+        let transform_size = std::mem::size_of::<InstanceTransform>();
+        let buffer_capacity = instances.transforms.capacity() * transform_size;
+        let transform_builder = BufferBuilder::as_vertex()
             .with_label(&entity_id.key)
+            .with_capacity(buffer_capacity)
             .with_data(transform_bytes.clone());
-        self.request_buffer(&entity_id, transform_builder);
 
+        self.request_buffer(&entity_id, transform_builder);
         self.update_cmds.push(UpdateCommand { key: entity_id.clone(), data: transform_bytes });
     }
 

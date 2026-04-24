@@ -4,7 +4,7 @@ use winit::window::Window;
 use std::sync::Arc;
 
 use crate::graphics::{
-    bind_group::{BindGroupBuilder, BindGroupContext, BindGroupLayoutBuilder, BindGroupResource}, core::WgpuCore, handler::{ResourceHandler, ResourceStatus}, init_state::{InitMode, StateInit}, mesh::MeshBuffer, presets::TextureSampler, render_pipeline::{RenderPipelineBuilder, RenderPipelineContext}, renderer::{CreateCommand, Renderer, UpdateCommand}, texture::{TextureBuilder, TextureContext}, tracker::ResourceTracker
+    bind_group::{BindGroupBuilder, BindGroupContext, BindGroupLayoutBuilder, BindGroupResource}, buffer::BufferContext, core::WgpuCore, handler::{ResourceHandler, ResourceStatus}, init_state::{InitMode, StateInit}, mesh::MeshBuffer, presets::TextureSampler, render_pipeline::{RenderPipelineBuilder, RenderPipelineContext}, renderer::{CreateCommand, Renderer, UpdateCommand}, texture::{TextureBuilder, TextureContext}, tracker::ResourceTracker
 };
 
 /// Group binding number for global uniforms
@@ -243,12 +243,22 @@ impl WgpuContext {
         for create_cmd in create_cmds {
             match create_cmd {
                 CreateCommand::Mesh { id, builder } => {
+                    let context = Arc::new(BufferContext {
+                        device: Arc::clone(&self.core.device),
+                        queue: Arc::clone(&self.core.queue)
+                    });
+
                     self.tracker.meshes.insert(id.clone());
-                    self.mesh_handler.request_new(&id, builder, Arc::clone(&self.core.device));
+                    self.mesh_handler.request_new(&id, builder, context);
                 },
                 CreateCommand::Buffer { id, builder } => {
+                    let context = Arc::new(BufferContext {
+                        device: Arc::clone(&self.core.device),
+                        queue: Arc::clone(&self.core.queue)
+                    });
+
                     self.tracker.buffers.insert(id.clone());
-                    self.buffer_handler.request_new(&id, builder, Arc::clone(&self.core.device));
+                    self.buffer_handler.request_new(&id, builder, context);
                 },
                 CreateCommand::Texture { id, builder } => {
                     self.init_texture(&id, builder);

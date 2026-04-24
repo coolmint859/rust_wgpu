@@ -22,7 +22,8 @@ impl Game {
         
         let particles = ParticleSystem::new( {
             ParticleConfig {
-                num_particles: 1000,
+                total_particles: 10000,
+                spawn_cap: 1000,
                 emit_center: Vec3 { x: 0.4, y: 0.5, z: 0.0},
                 size: Variance { mean: 0.02, std_dev: 0.001 },
                 speed: Variance { mean: 0.5, std_dev: 0.2 },

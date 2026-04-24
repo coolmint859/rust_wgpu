@@ -2,6 +2,8 @@
 use std::sync::Arc;
 use std::sync::atomic::{ AtomicU32, Ordering };
 
+use crate::graphics::buffer::BufferContext;
+
 use super::{
     handler::ResourceBuilder,
     buffer::BufferBuilder,
@@ -59,21 +61,21 @@ impl MeshData {
 /// Allows us to treat the mesh data as if it was a regular resource builder
 impl ResourceBuilder for Arc<MeshData> {
     type Output = MeshBuffer;
-    type Context = wgpu::Device;
+    type Context = BufferContext;
 
-    fn build(&self, device: Arc<wgpu::Device>) -> Result<MeshBuffer, String> {
+    fn build(&self, context: Arc<BufferContext>) -> Result<MeshBuffer, String> {
         let vertex_data: Vec<u8> = bytemuck::cast_slice(&self.vertex_data).to_vec();
         let index_data: Vec<u8> = bytemuck::cast_slice(&self.index_data).to_vec();
 
-        let vertex_buffer = BufferBuilder::as_vertex(0)
+        let vertex_buffer = BufferBuilder::as_vertex()
             .with_label(&format!("vertex_{}", self.id))
             .with_data(vertex_data)
-            .build(Arc::clone(&device))?;
+            .build(Arc::clone(&context))?;
 
-        let index_buffer = BufferBuilder::as_index(0)
+        let index_buffer = BufferBuilder::as_index()
             .with_label(&format!("index_{}", self.id))
             .with_data(index_data)
-            .build(Arc::clone(&device))?;
+            .build(Arc::clone(&context))?;
 
         println!("[Mesh Data] Created new mesh data with id #{}", self.id);
 

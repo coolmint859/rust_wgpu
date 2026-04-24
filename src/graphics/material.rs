@@ -194,7 +194,7 @@ impl MaterialComponent for ColorComponent {
     }
 
     fn get_uniform_builder(&self) -> UniformBuilder {
-        let builder = BufferBuilder::as_uniform(0)
+        let builder = BufferBuilder::as_uniform()
             .with_label(&self.label)
             .with_data_from_struct(ColorUniform { color: self.color });
 

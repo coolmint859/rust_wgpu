@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 use std::sync::Arc;
 use crate::graphics::handler::ResourceBuilder;
-use wgpu::util::DeviceExt;
 
 #[derive(Clone, Debug)]
 pub enum BufferType {
@@ -11,43 +10,48 @@ pub enum BufferType {
     Index,
 }
 
+pub struct BufferContext {
+    pub device: Arc<wgpu::Device>,
+    pub queue: Arc<wgpu::Queue>
+}
+
 /// Constructs a buffer on the gpu with the provided data, if any
 #[derive(Clone, Debug)]
 pub struct BufferBuilder {
     label: String,
     usage: BufferType,
-    size: u64,
-    data: Option<Vec<u8>>,
+    size: usize,
+    data: Vec<u8>,
 }
 
 impl BufferBuilder {
-    pub fn new(usage: BufferType, size: u64) -> Self {
+    pub fn new(usage: BufferType) -> Self {
         Self {
             label: "buffer-builder".to_string(),
-            data: None,
-            size,
+            data: Vec::new(),
+            size: 0,
             usage
         }
     }
 
     /// Create a buffer builder that produces a uniform buffer
-    pub fn as_uniform(size: u64) -> Self {
-        BufferBuilder::new(BufferType::Uniform, size)
+    pub fn as_uniform() -> Self {
+        BufferBuilder::new(BufferType::Uniform)
     }
 
     /// Create a buffer builder that produces a storage buffer
-    pub fn as_storage(size: u64) -> Self {
-        BufferBuilder::new(BufferType::Storage, size)
+    pub fn as_storage() -> Self {
+        BufferBuilder::new(BufferType::Storage)
     }
 
     /// Create a buffer builder that produces a vertex buffer
-    pub fn as_vertex(size: u64) -> Self {
-        BufferBuilder::new(BufferType::Vertex, size)
+    pub fn as_vertex() -> Self {
+        BufferBuilder::new(BufferType::Vertex)
     }
 
     /// Create a buffer builder that produces an index buffer
-    pub fn as_index(size: u64) -> Self {
-        BufferBuilder::new(BufferType::Index, size)
+    pub fn as_index() -> Self {
+        BufferBuilder::new(BufferType::Index,)
     }
 
     /// Add a custom label for GPU profiling
@@ -56,15 +60,24 @@ impl BufferBuilder {
         self
     }
 
+    /// Add a maximum capacity for the buffer.
+    /// 
+    /// If data is added prior to a call to build() that is larger than the capacity, 
+    /// the capacity is ignored and the builder will allocate enough space for the data.
+    pub fn with_capacity(mut self, capacity: usize) -> Self {
+        self.size = capacity;
+        self
+    }
+
     /// Add data to the buffer from a byte vector
     pub fn with_data(mut self, data: Vec<u8>) -> Self {
-        self.data = Some(data);
+        self.data = data;
         self
     }
 
     /// Add data to the buffer in the form of a POD struct
     pub fn with_data_from_struct<T: bytemuck::Pod>(mut self, data_struct: T) -> Self {
-        self.data = Some(BufferBuilder::to_padded_vec(data_struct));
+        self.data = BufferBuilder::to_padded_vec(data_struct);
         self
     }
 
@@ -95,24 +108,24 @@ impl BufferBuilder {
 
 impl ResourceBuilder for BufferBuilder {
     type Output = Arc<wgpu::Buffer>;
-    type Context = wgpu::Device;
+    type Context = BufferContext;
 
-    fn build(&self, device: Arc<wgpu::Device>) -> Result<Arc<wgpu::Buffer>, String> {
+    fn build(&self, context: Arc<BufferContext>) -> Result<Arc<wgpu::Buffer>, String> {
+        let buffer_size = self.size.max(self.data.len());
+
+        let buffer = context.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(&self.label),
+            size: buffer_size as u64,
+            usage: BufferBuilder::buffer_usage(&self.usage),
+            mapped_at_creation: false,
+        });
+
         println!("[Buffer] Created new buffer of type {:?} with label '{}'", self.usage, self.label);
-        if let Some(data) = &self.data {
-            Ok(Arc::new(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(&self.label),
-                contents: data,
-                usage: BufferBuilder::buffer_usage(&self.usage),
-            })))
-        } else {
-            // Otherwise, allocate empty space
-            Ok(Arc::new(device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some(&self.label),
-                size: self.size,
-                usage: BufferBuilder::buffer_usage(&self.usage),
-                mapped_at_creation: false,
-            })))
+        
+        if self.data.len() > 0 {
+            context.queue.write_buffer(&buffer, 0, &self.data);
         }
+
+        Ok(Arc::new(buffer))
     }
 }
