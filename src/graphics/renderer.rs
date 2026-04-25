@@ -3,15 +3,14 @@ use std::{collections::HashSet, sync::Arc};
 
 use glam::Mat4;
 
-use crate::graphics::{entity::{Entity, EntityInstances, EntityTrait}, material::Material, texture::SamplerBuilder, wpgu_context::{ResourceBinding, ResourceID, ResourceScope}};
+use crate::graphics::{entity::{Entity, EntityInstances, EntityTrait}, geometry::{Geometry, GeometryBuilder, GeometryID}, material::Material, texture::SamplerBuilder, wpgu_context::{ResourceBinding, ResourceID, ResourceScope}};
 
 use super::{
     bind_group::*, 
     buffer::BufferBuilder, 
     camera::Camera, 
     init_state::InitMode, 
-    material::UniformBuilder, 
-    mesh::MeshData,
+    material::UniformBuilder,
     render_pipeline::RenderPipelineBuilder, 
     texture::TextureBuilder, 
     tracker::ResourceTracker,
@@ -24,7 +23,7 @@ pub enum CreateCommand {
     BindGroupLayout{ builder: BindGroupLayoutBuilder },
     BindGroup{ id: String, layout_id: BindGroupLayoutBuilder, resource_ids: Vec<ResourceBinding> },
     RenderPipeline{ builder: RenderPipelineBuilder, mode: InitMode },
-    Mesh { id: u32, builder: Arc<MeshData> },
+    Geometry { id: GeometryID, builder: Arc<GeometryBuilder> },
     Buffer { id: ResourceID, builder: BufferBuilder },
     Texture { id: ResourceID, builder: TextureBuilder },
     Sampler { id: ResourceID, builder: SamplerBuilder },
@@ -40,8 +39,8 @@ pub struct UpdateCommand {
 /// Command used to draw a single instance of a mesh to the current texture
 #[derive(Clone, Debug)]
 pub struct DrawCommand {
-    /// used to get the vertex/index buffers
-    pub mesh_id: u32,
+    /// used to get the geometry buffers
+    pub geometry_id: GeometryID,
     /// used to get the mesh's bind group
     pub entity_group: String,
     /// used to get the material's bind group
@@ -55,8 +54,8 @@ pub struct DrawCommand {
 /// Command used to draw multiple instances of a mesh to the current texture
 #[derive(Clone, Debug)]
 pub struct InstanceCommand {
-    /// used to get the vertex/index buffers
-    pub mesh_id: u32,
+    /// used to get the geometry buffers
+    pub geometry_id: GeometryID,
     /// used to get the material's bind group
     pub material_group: String,
     /// used to get the transform buffer
@@ -214,10 +213,10 @@ impl Renderer {
         let mut pipeline = entity.pipeline.clone();
         pipeline.add_bg_layout(GLOBAL_UNIFORMS, self.globals_layout.as_mut().unwrap().clone());
         
-        self.request_mesh(entity.mesh.get_data_builder());
+        self.request_geometry(&entity.geometry);
         self.process_transform(entity, &mut pipeline);
         self.process_uniforms(
-            entity.mesh.get_key(),
+            entity.geometry.get_key(),
             entity.namespace_id().key,
             &entity.material, 
             &mut pipeline
@@ -227,7 +226,7 @@ impl Renderer {
 
         self.draw_cmds.push(
             DrawCommand {
-                mesh_id: entity.mesh.get_data_key(),
+                geometry_id: entity.geometry.id.clone(),
                 entity_group: entity.transform_id().key,
                 material_group: entity.namespace_id().key,
                 rpip_id: pipeline,
@@ -243,10 +242,10 @@ impl Renderer {
         let mut pipeline = instances.pipeline.clone();
         pipeline.add_bg_layout(GLOBAL_UNIFORMS, self.globals_layout.as_mut().unwrap().clone());
         
-        self.request_mesh(instances.mesh.get_data_builder());
+        self.request_geometry(&instances.geometry);
         self.process_instance_transforms(instances);
         self.process_uniforms(
-            instances.mesh.get_key(),
+            instances.geometry.get_key(),
             instances.namespace_id().key,
             &instances.material, 
             &mut pipeline
@@ -256,7 +255,7 @@ impl Renderer {
 
         self.instance_cmds.push(
             InstanceCommand {
-                mesh_id: instances.mesh.get_data_key(),
+                geometry_id: instances.geometry.id.clone(),
                 transform_id: instances.transform_id(),
                 material_group: instances.namespace_id().key,
                 rpip_id: pipeline,
@@ -399,12 +398,11 @@ impl Renderer {
     }
 
     /// request a create mesh command to be queued. Commands with the same key already queued will be skipped.
-    fn request_mesh(&mut self, mesh: Arc<MeshData>) {
-        let mesh_id = mesh.id();
-        if !self.tracker.as_mut().unwrap().meshes.contains(&mesh_id) {
-            self.create_cmds.push(CreateCommand::Mesh { 
-                id: mesh_id, 
-                builder: mesh
+    fn request_geometry(&mut self, geometry: &Geometry) {
+        if !self.tracker.as_mut().unwrap().geometries.contains(&geometry.id) {
+            self.create_cmds.push(CreateCommand::Geometry { 
+                id: geometry.id.clone(), 
+                builder: Arc::clone(&geometry.builder)
             });
         }
     }

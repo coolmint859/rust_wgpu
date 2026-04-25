@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::graphics::{bind_group::{BindGroupLayoutBuilder, LayoutBindType, LayoutEntry, LayoutVisibility}, material::Material, mesh::Mesh, render_pipeline::RenderPipelineBuilder, transform::Transform, wpgu_context::{ResourceBinding, ResourceID, ResourceScope}};
+use crate::graphics::{bind_group::{BindGroupLayoutBuilder, LayoutBindType, LayoutEntry, LayoutVisibility}, geometry::Geometry, material::Material, render_pipeline::RenderPipelineBuilder, transform::Transform, wpgu_context::{ResourceBinding, ResourceID, ResourceScope}};
 
 pub trait EntityTrait {
     /// get the transform id for this entity
@@ -12,7 +12,7 @@ pub trait EntityTrait {
 
 /// Simple data stuct that consolidates rendering properties for a single instance
 pub struct Entity {
-    pub mesh: Mesh,
+    pub geometry: Geometry,
     pub transform: Transform,
     pub material: Arc<Material>,
     pub pipeline: RenderPipelineBuilder
@@ -42,7 +42,7 @@ impl Entity {
 impl EntityTrait for Entity {
     fn transform_id(&self) -> ResourceID {
         ResourceID {
-            key: format!("{}::transform", self.mesh.get_key()),
+            key: format!("{}::transform", self.geometry.get_key()),
             scope: ResourceScope::Entity
         }
     }
@@ -50,7 +50,7 @@ impl EntityTrait for Entity {
     // get the entity-material namespace id for this entity
     fn namespace_id(&self) -> ResourceID {
         ResourceID {
-            key: format!("{}::{}", self.mesh.get_key(), self.material.get_key()),
+            key: format!("{}::{}", self.geometry.get_key(), self.material.get_key()),
             scope: ResourceScope::Entity
         }
     }
@@ -58,7 +58,7 @@ impl EntityTrait for Entity {
 
 /// Data stuct that consolidates rendering properties for multiple instances
 pub struct EntityInstances {
-    pub mesh: Mesh,
+    pub geometry: Geometry,
     pub material: Arc<Material>,
     pub pipeline: RenderPipelineBuilder,
     pub transforms: Vec<Transform>,
@@ -67,7 +67,7 @@ pub struct EntityInstances {
 impl EntityTrait for EntityInstances {
     fn transform_id(&self) -> ResourceID {
         ResourceID {
-            key: format!("{}::instance_transforms", self.mesh.get_key()),
+            key: format!("{}::instance_transforms", self.geometry.get_key()),
             scope: ResourceScope::Entity
         }
     }
@@ -75,7 +75,7 @@ impl EntityTrait for EntityInstances {
     // get the entity-material namespace id for this entity
     fn namespace_id(&self) -> ResourceID {
         ResourceID {
-            key: format!("{}::{}", self.mesh.get_key(), self.material.get_key()),
+            key: format!("{}::{}", self.geometry.get_key(), self.material.get_key()),
             scope: ResourceScope::Entity
         }
     }

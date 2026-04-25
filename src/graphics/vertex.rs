@@ -33,6 +33,16 @@ impl VertexAttribute {
             _ => false
         }
     }
+
+    /// Get a string representation of this attribute
+    pub fn as_str(&self) -> String {
+        match self {
+            VertexAttribute::Position => "pos".to_string(),
+            VertexAttribute::Normal => "norm".to_string(),
+            VertexAttribute::UV => "uv".to_string(),
+            VertexAttribute::Transform => "tsfm".to_string(),
+        }
+    }
 }
 
 #[derive(Clone, Hash, Eq, PartialEq, Debug)]
@@ -81,6 +91,16 @@ impl VertexLayoutBuilder {
     /// Get the set of vertex attributes for this vertex layout
     pub fn get_attributes(&self) -> Vec<VertexAttribute> {
         self.attributes.to_vec()
+    }
+
+    /// Get a string representation of this vertex layout
+    pub fn key_str(&self) -> String{
+        let mut key = format!("{:?}_", self.step_mode);
+        for attr in &self.attributes {
+            key.extend(attr.as_str().chars());
+        }
+
+        key
     }
 }
 

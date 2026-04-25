@@ -4,7 +4,7 @@ use winit::window::Window;
 use std::sync::Arc;
 
 use crate::graphics::{
-    bind_group::{BindGroupBuilder, BindGroupContext, BindGroupLayoutBuilder, BindGroupResource}, buffer::BufferContext, core::WgpuCore, handler::{ResourceHandler, ResourceStatus}, init_state::{InitMode, StateInit}, mesh::MeshBuffer, presets::TextureSampler, render_pipeline::{RenderPipelineBuilder, RenderPipelineContext}, renderer::{CreateCommand, Renderer, UpdateCommand}, texture::{TextureBuilder, TextureContext}, tracker::ResourceTracker
+    bind_group::{BindGroupBuilder, BindGroupContext, BindGroupLayoutBuilder, BindGroupResource}, buffer::BufferContext, core::WgpuCore, geometry::{GeometryBuffer, GeometryID}, handler::{ResourceHandler, ResourceStatus}, init_state::{InitMode, StateInit}, presets::TextureSampler, render_pipeline::{RenderPipelineBuilder, RenderPipelineContext}, renderer::{CreateCommand, Renderer, UpdateCommand}, texture::{TextureBuilder, TextureContext}, tracker::ResourceTracker
 };
 
 /// Group binding number for global uniforms
@@ -57,7 +57,7 @@ pub struct WgpuContext {
     texture_handler: ResourceHandler<ResourceID, Arc<TextureView>>,
     sampler_handler: ResourceHandler<ResourceID, Arc<wgpu::Sampler>>,
 
-    mesh_handler: ResourceHandler<u32, MeshBuffer>,
+    geometry_handler: ResourceHandler<GeometryID, GeometryBuffer>,
     bindgroup_handler: ResourceHandler<String, wgpu::BindGroup>,
 }
 
@@ -71,7 +71,7 @@ impl WgpuContext {
             core,
             sampler_handler,
             layout_handler: ResourceHandler::new(),
-            mesh_handler: ResourceHandler::new(),
+            geometry_handler: ResourceHandler::new(),
             bindgroup_handler: ResourceHandler::new(),
             pipeline_handler: ResourceHandler::new(),
             buffer_handler: ResourceHandler::new(),
@@ -213,7 +213,7 @@ impl WgpuContext {
     /// Prepare the context for the next frame
     pub fn prepare_next_frame(&mut self) {
         self.layout_handler.sync();
-        self.mesh_handler.sync();
+        self.geometry_handler.sync();
         self.pipeline_handler.sync();
         self.bindgroup_handler.sync();
         self.buffer_handler.sync();
@@ -242,14 +242,14 @@ impl WgpuContext {
     pub fn create_resources(&mut self, create_cmds: &Vec<CreateCommand>) {
         for create_cmd in create_cmds {
             match create_cmd {
-                CreateCommand::Mesh { id, builder } => {
+                CreateCommand::Geometry { id, builder } => {
                     let context = Arc::new(BufferContext {
                         device: Arc::clone(&self.core.device),
                         queue: Arc::clone(&self.core.queue)
                     });
 
-                    self.tracker.meshes.insert(id.clone());
-                    self.mesh_handler.request_new(&id, builder, context);
+                    self.tracker.geometries.insert(id.clone());
+                    self.geometry_handler.request_new(&id, builder, context);
                 },
                 CreateCommand::Buffer { id, builder } => {
                     let context = Arc::new(BufferContext {
@@ -346,7 +346,7 @@ impl WgpuContext {
     /// draw meshes to the current texture using the provided render pass
     fn draw_single(&mut self, renderer: &Renderer, render_pass: &mut wgpu::RenderPass) {
         for draw_cmd in renderer.draw_cmds() {
-            let mesh_status = self.mesh_handler.status_of(&draw_cmd.mesh_id);
+            let mesh_status = self.geometry_handler.status_of(&draw_cmd.geometry_id);
             let pip_status = self.pipeline_handler.status_of(&draw_cmd.rpip_id.clone());
             let mat_u_status = self.bindgroup_handler.status_of(&draw_cmd.material_group.clone());
             let mesh_u_status = self.bindgroup_handler.status_of(&draw_cmd.entity_group.clone());
@@ -373,7 +373,7 @@ impl WgpuContext {
 
     fn draw_instances(&mut self, renderer: &Renderer, render_pass: &mut wgpu::RenderPass) {
         for insance_cmd in renderer.instance_cmds() {
-            let mesh_status = self.mesh_handler.status_of(&insance_cmd.mesh_id);
+            let mesh_status = self.geometry_handler.status_of(&insance_cmd.geometry_id);
             let pip_status = self.pipeline_handler.status_of(&insance_cmd.rpip_id.clone());
             let mat_u_status = self.bindgroup_handler.status_of(&insance_cmd.material_group.clone());
             let transforms_status = self.buffer_handler.status_of(&insance_cmd.transform_id);

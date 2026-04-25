@@ -6,8 +6,7 @@ use rand::random;
 use rand_distr::{Distribution, Normal};
 
 use crate::graphics::{
-    entity::EntityInstances, 
-    mesh::Mesh, 
+    entity::EntityInstances,
     presets::{MaterialPreset, RenderPipeline}, 
     renderer::Renderer, 
     shape_factory::Shape2D, 
@@ -89,7 +88,7 @@ impl ParticleSystem {
     pub fn new(config: ParticleConfig) -> Self {
         let pipeline = RenderPipeline::TexturedSpriteInstanced.get();
         let instances = EntityInstances {
-            mesh: Mesh::new("particle", Shape2D::new().square(pipeline.primary_vertex_layouts())),
+            geometry: Shape2D::new().square(pipeline.primary_vertex_layouts()),
             material: MaterialPreset::TexturedSprite(config.texture_path).with_label("particle"),
             transforms: Vec::with_capacity(config.total_particles),
             pipeline,

@@ -6,11 +6,12 @@ use glam::Vec3;
 use rand::random;
 
 use crate::{game::particle::{ParticleConfig, ParticleSystem, Variance}, graphics::{
-    camera::{Camera, Camera2D}, init_state::StateInit, renderer::Renderer, traits::AppState,
+    camera::{Camera, Camera2D}, entity::Entity, init_state::StateInit, presets::{MaterialPreset, RenderPipeline}, renderer::Renderer, shape_factory::Shape2D, traits::AppState, transform::Transform
 }};
 
 pub struct Game {
     particles: ParticleSystem,
+    blue_devils: Entity,
     camera: Camera2D,
     emit_reset_time: f32,
     curr_emit_time: f32,
@@ -35,7 +36,15 @@ impl Game {
             }
         });
 
-        Self { particles, camera, emit_reset_time: 3.0, curr_emit_time: 0.0 }
+        let tex_pipeline = RenderPipeline::TexturedSprite.get();
+        let blue_devils = Entity {
+            geometry: Shape2D::new().square(tex_pipeline.primary_vertex_layouts()),
+            material: MaterialPreset::TexturedSprite("./assets/BlueDevilsLogo.png").with_label("blue_devils"),
+            transform: Transform::default(),
+            pipeline: tex_pipeline
+        };
+
+        Self { particles, blue_devils, camera, emit_reset_time: 3.0, curr_emit_time: 0.0 }
     }
 }
 
@@ -68,5 +77,7 @@ impl AppState for Game {
         renderer.set_camera(&mut self.camera);
 
         self.particles.render(renderer);
+
+        renderer.draw(&mut self.blue_devils);
     }
 } 
