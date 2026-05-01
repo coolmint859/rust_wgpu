@@ -1,11 +1,8 @@
 #![allow(dead_code)]
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use crate::graphics::{
-   material::{ColorComponent, Material, SamplerComponent, TextureComponent},
-   render_pipeline::RenderPipelineBuilder, 
-   texture::SamplerBuilder, 
-   vertex::{VertexAttribute, VertexLayoutBuilder}
+   bind_group::{BindGroupLayoutBuilder, LayoutBindType, LayoutEntry, LayoutVisibility}, material::{ColorComponent, Material, SamplerComponent, TextureComponent}, render_pipeline::RenderPipelineBuilder, shader::ShaderSpecBuilder, texture::SamplerBuilder, vertex::VertexAttribute
 };
 
 /// preset material configurations
@@ -20,25 +17,123 @@ impl MaterialPreset {
     pub fn with_label(self, label: &str) -> Arc<Material> {
         match self {
             MaterialPreset::ColoredSprite(color) => {
-                let mut map = HashMap::new();
-                map.insert(label.to_string(), 0);
-
-                let mut material = Material::new("colored-sprite", map.clone());
-                let _ = material.add_component(ColorComponent::new(label, color));
+                let mut material = Material::new("colored-sprite");
+                material.add_component(ColorComponent::new(label, color));
 
                 Arc::new(material)
             }
             MaterialPreset::TexturedSprite(path) => {
-                let mut map = HashMap::new();
-                map.insert(label.to_string(), 0);
-                map.insert(TextureSampler::NearestClampToEdge.as_key(), 1);
-
-                let mut material = Material::new("textured-sprite", map.clone());
-                let _ = material.add_component(TextureComponent::new(label, path));
-                let _ = material.add_component(SamplerComponent::new(TextureSampler::NearestClampToEdge).with_bind_slot(1));
+                let mut material = Material::new("textured-sprite");
+                material.add_component(TextureComponent::new(label, path));
+                material.add_component(SamplerComponent::new(TextureSampler::NearestClampToEdge));
 
                 Arc::new(material)
             }
+        }
+    }
+}
+
+
+pub enum ShaderSpecPreset {
+    ColoredSprite,
+    TexturedSprite,
+    ColoredSpriteInstanced,
+    TexturedSpriteInstanced
+}
+
+impl ShaderSpecPreset {
+    pub fn get(self) -> ShaderSpecBuilder {
+        let global_layout = BindGroupLayoutBuilder::new()
+            .with_label("global-uniforms")
+            .with_entry(LayoutEntry { 
+                binding: 0, 
+                visibility: LayoutVisibility::VertexFragment, 
+                ty: LayoutBindType::Uniform 
+            });
+
+        let transform_layout = BindGroupLayoutBuilder::new()
+            .with_label("transform")
+            .with_entry(LayoutEntry {
+                binding: 0,
+                visibility: LayoutVisibility::Vertex,
+                ty: LayoutBindType::Uniform
+            });
+
+        let colored_sprite_layout = BindGroupLayoutBuilder::new()
+            .with_label("colored-sprite")
+            .with_entry(LayoutEntry {
+                binding: 0,
+                visibility: LayoutVisibility::Fragment,
+                ty: LayoutBindType::Uniform,
+            });
+
+        let textured_sprite_layout = BindGroupLayoutBuilder::new()
+            .with_label("textured-sprite")
+            .with_entry(LayoutEntry {
+                binding: 0,
+                visibility: LayoutVisibility::Fragment,
+                ty: LayoutBindType::Texture,
+            })
+            .with_entry(LayoutEntry { 
+                binding: 1, 
+                visibility: LayoutVisibility::Fragment, 
+                ty: LayoutBindType::Sampler 
+            });
+
+        match self {
+            ShaderSpecPreset::ColoredSprite => {
+                ShaderSpecBuilder::new(&self.path())
+                    .with_vertex_attribute(VertexAttribute::Position, 0)
+                    .with_bg_layout(global_layout)
+                    .with_bg_layout(colored_sprite_layout)
+                    .with_bg_layout(transform_layout)
+            },
+            ShaderSpecPreset::ColoredSpriteInstanced => {
+                ShaderSpecBuilder::new(&self.path())
+                    .with_vertex_attribute(VertexAttribute::Position, 0)
+                    .with_instance_attribute(VertexAttribute::Transform, 1)
+                    .with_bg_layout(global_layout)
+                    .with_bg_layout(colored_sprite_layout)
+            },
+            ShaderSpecPreset::TexturedSprite => {
+                ShaderSpecBuilder::new(&self.path())
+                    .with_vertex_attribute(VertexAttribute::Position, 0)
+                    .with_vertex_attribute(VertexAttribute::UV, 1)
+                    .with_bg_layout(global_layout)
+                    .with_bg_layout(textured_sprite_layout)
+                    .with_bg_layout(transform_layout)
+            },
+            ShaderSpecPreset::TexturedSpriteInstanced => {
+                ShaderSpecBuilder::new(&self.path())
+                    .with_vertex_attribute(VertexAttribute::Position, 0)
+                    .with_vertex_attribute(VertexAttribute::UV, 1)
+                    .with_instance_attribute(VertexAttribute::Transform, 2)
+                    .with_bg_layout(global_layout)
+                    .with_bg_layout(textured_sprite_layout)
+            }
+        }
+    }
+
+    pub fn path(&self) -> String {
+        match self {
+            ShaderSpecPreset::ColoredSprite => "src/graphics/shaders/colored_sprite.wgsl".to_string(),
+            ShaderSpecPreset::ColoredSpriteInstanced => "src/graphics/shaders/colored_sprite_instanced.wgsl".to_string(),
+            ShaderSpecPreset::TexturedSprite => "src/graphics/shaders/textured_sprite.wgsl".to_string(),
+            ShaderSpecPreset::TexturedSpriteInstanced => "src/graphics/shaders/textured_sprite_instanced.wgsl".to_string(),
+        }
+    }
+
+    pub fn from_known_path(shader_path: &String) -> Option<ShaderSpecBuilder> {
+        if shader_path == &ShaderSpecPreset::ColoredSprite.path() {
+            Some(ShaderSpecPreset::ColoredSprite.get())
+        } else if shader_path == &ShaderSpecPreset::ColoredSpriteInstanced.path() {
+            Some(ShaderSpecPreset::ColoredSpriteInstanced.get())
+        } else if shader_path == &ShaderSpecPreset::TexturedSprite.path() {
+            Some(ShaderSpecPreset::TexturedSprite.get())
+        } else if shader_path == &ShaderSpecPreset::TexturedSpriteInstanced.path() {
+            Some(ShaderSpecPreset::TexturedSpriteInstanced.get())
+        } else {
+            None
         }
     }
 }
@@ -60,36 +155,17 @@ impl RenderPipeline {
     pub fn get(self) -> RenderPipelineBuilder {
         return match self {
             RenderPipeline::ColoredSprite => {
-                let path = "src/graphics/shaders/colored_sprite.wgsl";
-                let vertex_builder = VertexLayoutBuilder::with_position();
-
-                RenderPipelineBuilder::new(path, 3, vertex_builder).with_label("colored-sprite")
+                RenderPipelineBuilder::new().with_label("colored-sprite")
             }
             RenderPipeline::TexturedSprite => {
-                let path = "src/graphics/shaders/textured_sprite.wgsl";
-                let vertex_builder = VertexLayoutBuilder::with_position().with_attribute(VertexAttribute::UV);
-
-                RenderPipelineBuilder::new(path, 3, vertex_builder)
-                    .with_label("textured-sprite")
+                RenderPipelineBuilder::new().with_label("textured-sprite")
                     .with_alpha_blending()
             }
             RenderPipeline::ColoredSpriteInstanced => {
-                let path = "src/graphics/shaders/colored_sprite_instanced.wgsl";
-                let vertex_builder = VertexLayoutBuilder::with_position();
-                let transform_builder = VertexLayoutBuilder::with_transform();
-
-                RenderPipelineBuilder::new(path, 2, vertex_builder)
-                    .with_label("colored-sprite-instanced")
-                    .with_vertex_layout(transform_builder)
+                RenderPipelineBuilder::new().with_label("colored-sprite-instanced")
             },
             RenderPipeline::TexturedSpriteInstanced => {
-                let path = "src/graphics/shaders/textured_sprite_instanced.wgsl";
-                let vertex_builder = VertexLayoutBuilder::with_position().with_attribute(VertexAttribute::UV);
-                let transform_builder = VertexLayoutBuilder::with_transform();
-
-                RenderPipelineBuilder::new(path, 2, vertex_builder)
-                    .with_label("textured-sprite-instanced")
-                    .with_vertex_layout(transform_builder)
+                RenderPipelineBuilder::new().with_label("textured-sprite-instanced")
                     .with_custom_blending( wgpu::BlendState {
                         color: wgpu::BlendComponent {
                             src_factor: wgpu::BlendFactor::SrcAlpha,
@@ -126,41 +202,41 @@ impl TextureSampler {
         match self {
             TextureSampler::NearestClampToEdge => {
                 SamplerBuilder::new(wgpu::AddressMode::ClampToEdge, wgpu::FilterMode::Nearest)
-                    .with_label(&TextureSampler::NearestClampToEdge.as_key())
+                    .with_label(&TextureSampler::NearestClampToEdge.label())
             },
             TextureSampler::NearestClampToBorder => {
                 SamplerBuilder::new(wgpu::AddressMode::ClampToBorder, wgpu::FilterMode::Nearest)
-                    .with_label(&TextureSampler::NearestClampToBorder.as_key())
+                    .with_label(&TextureSampler::NearestClampToBorder.label())
             },
             TextureSampler::NearestRepeat => {
                 SamplerBuilder::new(wgpu::AddressMode::Repeat, wgpu::FilterMode::Nearest)
-                    .with_label(&TextureSampler::NearestRepeat.as_key())
+                    .with_label(&TextureSampler::NearestRepeat.label())
             },
             TextureSampler::NearestMirrorRepeat => {
                 SamplerBuilder::new(wgpu::AddressMode::MirrorRepeat, wgpu::FilterMode::Nearest)
-                    .with_label(&TextureSampler::NearestMirrorRepeat.as_key())
+                    .with_label(&TextureSampler::NearestMirrorRepeat.label())
             },
             TextureSampler::LinearClampToEdge => {
                 SamplerBuilder::new(wgpu::AddressMode::ClampToEdge, wgpu::FilterMode::Linear)
-                    .with_label(&TextureSampler::LinearClampToEdge.as_key())
+                    .with_label(&TextureSampler::LinearClampToEdge.label())
             },
             TextureSampler::LinearClampToBorder => {
                 SamplerBuilder::new(wgpu::AddressMode::ClampToBorder, wgpu::FilterMode::Linear)
-                    .with_label(&TextureSampler::LinearClampToBorder.as_key())
+                    .with_label(&TextureSampler::LinearClampToBorder.label())
             }
             TextureSampler::LinearRepeat => {
                 SamplerBuilder::new(wgpu::AddressMode::Repeat, wgpu::FilterMode::Linear)
-                    .with_label(&TextureSampler::LinearRepeat.as_key())
+                    .with_label(&TextureSampler::LinearRepeat.label())
             },
             TextureSampler::LinearMirrorRepeat => {
                 SamplerBuilder::new(wgpu::AddressMode::MirrorRepeat, wgpu::FilterMode::Linear)
-                    .with_label(&TextureSampler::LinearMirrorRepeat.as_key())
+                    .with_label(&TextureSampler::LinearMirrorRepeat.label())
             },
         }
     }
 
     /// Get this sampler as it's key name
-    pub fn as_key(self) -> String {
+    pub fn label(&self) -> String {
         match self {
             TextureSampler::LinearClampToBorder => "linear_clamp-to-border".to_string(),
             TextureSampler::LinearClampToEdge => "linear_clamp-to-edge".to_string(),

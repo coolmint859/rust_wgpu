@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use std::cell::Cell;
+use std::{cell::Cell, sync::atomic::{AtomicU32, Ordering}};
 
 use glam::*;
 
@@ -8,12 +8,15 @@ pub const LOCAL_RIGHT:Vec3 =    Vec3::new(1.0, 0.0, 0.0);
 pub const LOCAL_UP:Vec3 =       Vec3::new(0.0, 1.0, 0.0);
 pub const LOCAL_FORWARD:Vec3 =  Vec3::new(0.0, 0.0, 1.0);
 
+static TRANSFORM_COUNTER: AtomicU32 = AtomicU32::new(0);
+
 /// represents position, rotation, and scaling of an entity
 #[derive(Clone, Debug)]
 pub struct Transform {
-    pub position: Vec3,
-    pub rotation: Quat,
-    pub scale: Vec3,
+    id: u32,
+    position: Vec3,
+    rotation: Quat,
+    scale: Vec3,
 
     world_mat:Mat4,
     is_dirty: Cell<bool>,
@@ -21,20 +24,22 @@ pub struct Transform {
 
 impl Transform {
     pub fn new(position: Vec3, rotation: Quat, scale: Vec3) -> Self {
+        let id = TRANSFORM_COUNTER.fetch_add(1, Ordering::SeqCst);
         let world_mat = Mat4::from_scale_rotation_translation(scale, rotation, position);
         let is_dirty = Cell::new(true);
-        Self { position, rotation, scale, world_mat, is_dirty }
+        Self { id, position, rotation, scale, world_mat, is_dirty }
     }
 
     /// Create a transform that 'faces' the z-axis at the origin with scale 1
     pub fn default() -> Self {
+        let id = TRANSFORM_COUNTER.fetch_add(1, Ordering::SeqCst);
         let position = Vec3::ZERO;
         let rotation = Quat::IDENTITY;
         let scale = Vec3::ONE;
 
         let world_mat = Mat4::from_scale_rotation_translation(scale, rotation, position);
         let is_dirty = Cell::new(true);
-        Self { position, rotation, scale, world_mat, is_dirty }
+        Self { id, position, rotation, scale, world_mat, is_dirty }
     }
 
     /// Set the postition of the transform relative to the world axis
@@ -55,10 +60,29 @@ impl Transform {
         self
     }
 
+    pub fn id(&self) -> u32 {
+        self.id.clone()
+    }
+
     /// Get a copy of this transform's world matrix
     pub fn world_matrix(&self) -> glam::Mat4 {
         self.is_dirty.set(false);
         self.world_mat.clone()
+    }
+
+    /// Get the position of this transform
+    pub fn get_position(&self) -> Vec3 {
+        self.position.clone()
+    }
+
+    /// Get the rotation of this transform
+    pub fn get_rotation(&self) -> Quat {
+        self.rotation.clone()
+    }
+
+    /// Get the scale of this transform
+    pub fn get_scale(&self) -> Vec3 {
+        self.scale.clone()
     }
 
     /// Move relative to local origin
@@ -123,7 +147,7 @@ impl Transform {
     }
 
     /// Set the scale of this transform
-    pub fn scale(&mut self, scale: glam::Vec3) {
+    pub fn set_scale(&mut self, scale: glam::Vec3) {
         self.scale = scale;
         self.is_dirty.set(true);
     }
@@ -143,7 +167,7 @@ impl Transform {
     /// Update the world matrix from the currently set position, rotation, and scale.
     /// 
     /// Returns true if the transform had changed this frame, false otherwise
-    pub fn update(&mut self) -> bool {
+    pub fn to_updated(&mut self) -> bool {
         if self.is_dirty() {
             self.world_mat = Mat4::from_scale_rotation_translation(self.scale, self.rotation, self.position);
             self.is_dirty.set(false);

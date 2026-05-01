@@ -1,10 +1,10 @@
 use std::{collections::HashMap, sync::Arc};
 
-use crate::graphics::{geometry::{Geometry, GeometryBuilder, GeometryID, Vertex}, vertex::VertexLayoutBuilder};
+use crate::graphics::{geometry::{GeometryBuilder, Vertex}};
 
 /// Creates and stores 2D shapes
 pub struct Shape2D {
-    shapes: HashMap<GeometryID, Arc<GeometryBuilder>>
+    shapes: HashMap<String, Arc<GeometryBuilder>>
 }
 
 impl Shape2D {
@@ -12,28 +12,23 @@ impl Shape2D {
         Self { shapes: HashMap::new() }
     }
 
-    /// Get or create a square mesh data using the provided layout builder
-    pub fn square(&mut self, vertex_layout: VertexLayoutBuilder) -> Geometry {
-        let id = GeometryID {
-            label: "square".to_string(),
-            vertex_layout: vertex_layout.clone()
-        };
+    /// Get or create a square geometry builder
+    pub fn square(&mut self) -> Arc<GeometryBuilder> {
+        let label = "square".to_string();
 
-        return match self.shapes.get(&id) {
-            Some(geometry) => {
-                Geometry { id, builder: Arc::clone(geometry) }
-            }
+        return match self.shapes.get(&label) {
+            Some(geometry) => Arc::clone(geometry),
             None => {
-                let square = Arc::new(gen_square(&id.label, vertex_layout));
-                self.shapes.insert(id.clone(), square.clone());
+                let square = Arc::new(gen_square(&label));
+                self.shapes.insert(label.clone(), square.clone());
 
-                Geometry { id, builder: Arc::clone(&square) }
+                Arc::clone(&square)
             }
         }
     }
 }
 
-pub fn gen_square(label: &str, vertex_layout: VertexLayoutBuilder) -> GeometryBuilder {
+pub fn gen_square(label: &str) -> GeometryBuilder {
     let vertex_data = vec![
         Vertex { position: Some([ 1.0,  1.0, 0.0 ]), uv: Some([1.0, 0.0]), normal: Some([0.0, 0.0, 1.0])},
         Vertex { position: Some([-1.0,  1.0, 0.0 ]), uv: Some([0.0, 0.0]), normal: Some([0.0, 0.0, 1.0])},
@@ -42,7 +37,7 @@ pub fn gen_square(label: &str, vertex_layout: VertexLayoutBuilder) -> GeometryBu
     ];
     let indices =vec![0, 1, 2, 2, 3, 0];
 
-    let builder = GeometryBuilder::new(vertex_layout)
+    let builder = GeometryBuilder::new()
         .with_label(label)
         .with_vertices(vertex_data)
         .with_indices(indices);

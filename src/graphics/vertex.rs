@@ -47,7 +47,7 @@ impl VertexAttribute {
 
 #[derive(Clone, Hash, Eq, PartialEq, Debug)]
 pub struct VertexLayoutBuilder {
-    attributes: Vec<VertexAttribute>,
+    attributes: Vec<(VertexAttribute, u32)>,
     step_mode: wgpu::VertexStepMode
 }
 
@@ -60,15 +60,15 @@ impl VertexLayoutBuilder {
     }
 
     /// create a vertex layout with a position attribute
-    pub fn with_position() -> Self {
-        VertexLayoutBuilder::new().with_attribute(VertexAttribute::Position)
+    pub fn with_position(loc: u32) -> Self {
+        VertexLayoutBuilder::new().with_attribute(VertexAttribute::Position, loc)
     }
 
     /// create a vertex layout with a transform attribute and instance step mode
-    pub fn with_transform() -> Self {
+    pub fn with_transform(loc: u32) -> Self {
         VertexLayoutBuilder::new()
             .with_step_mode(wgpu::VertexStepMode::Instance)
-            .with_attribute(VertexAttribute::Transform)
+            .with_attribute(VertexAttribute::Transform, loc)
     }
 
     /// Set the step mode for the builder to construct the vertex layout with
@@ -78,25 +78,20 @@ impl VertexLayoutBuilder {
     }
 
     /// Add an attribute to the vertex_layout
-    pub fn with_attribute(mut self, attr: VertexAttribute) -> Self {
-        self.attributes.push(attr);
+    pub fn with_attribute(mut self, attr: VertexAttribute, location: u32) -> Self {
+        self.attributes.push((attr, location));
         self
     }
 
     /// Add an attribute to the vertex_layout
-    pub fn add_attribute(&mut self, attr: VertexAttribute) {
-        self.attributes.push(attr);
-    }
-
-    /// Get the set of vertex attributes for this vertex layout
-    pub fn get_attributes(&self) -> Vec<VertexAttribute> {
-        self.attributes.to_vec()
+    pub fn add_attribute(&mut self, attr: VertexAttribute, location: u32) {
+        self.attributes.push((attr, location));
     }
 
     /// Get a string representation of this vertex layout
     pub fn key_str(&self) -> String{
         let mut key = format!("{:?}_", self.step_mode);
-        for attr in &self.attributes {
+        for (attr, _) in &self.attributes {
             key.extend(attr.as_str().chars());
         }
 
@@ -105,27 +100,27 @@ impl VertexLayoutBuilder {
 }
 
 impl ResourceBuilder for VertexLayoutBuilder {
-    type Context = u32;
-    type Output = (u32, wgpu::VertexBufferLayout<'static>);
+    type Context = ();
+    type Output = wgpu::VertexBufferLayout<'static>;
 
-    fn build(&self, start_location: Arc<u32>) -> Result<Self::Output, String> {
+    fn build(&self, _context: Arc<()>) -> Result<Self::Output, String> {
         let mut attributes = Vec::new();
-        let mut current_location = start_location.as_ref().clone();
 
         let mut offset = 0;
-        for attr in &self.attributes {
+        for (attr, loc) in &self.attributes {
             let format = attr.format();
             let locations_needed = if attr.is_matrix() { 4 } else { 1 };
             
+            let mut next_loc = *loc;
             for _ in 0..locations_needed {
                 attributes.push(wgpu::VertexAttribute {
                     offset,
-                    shader_location: current_location,
+                    shader_location: next_loc,
                     format,
                 });
 
                 offset += format.size();
-                current_location += 1;
+                next_loc += 1;
             }
         }
 
@@ -135,6 +130,6 @@ impl ResourceBuilder for VertexLayoutBuilder {
             attributes: attributes.leak()
         };
 
-        Ok((current_location, layout))
+        Ok(layout)
     }
 }

@@ -16,6 +16,7 @@ pub enum InitMode {
 #[derive(Clone, Debug)]
 /// Command for generating a render pipline
 pub struct RenderPipelineCommand {
+    pub shader_path: String,
     pub builder: RenderPipelineBuilder,
     pub mode: InitMode,
 }
@@ -42,8 +43,12 @@ impl StateInit {
     }
 
     /// Add a render pipeline to the initialization commands.
-    pub fn add_render_pipeline(&mut self, builder: RenderPipelineBuilder, mode: InitMode) {
-        self.rpip_commands.push(RenderPipelineCommand { builder, mode });
+    pub fn add_render_pipeline(&mut self, shader_path: &str, builder: RenderPipelineBuilder, mode: InitMode) {
+        self.rpip_commands.push(RenderPipelineCommand { 
+            shader_path: shader_path.to_string(), 
+            builder, 
+            mode 
+        });
     }
 
     /// Add a bind group layout to the initialization commands.

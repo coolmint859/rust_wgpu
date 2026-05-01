@@ -2,6 +2,8 @@
 use std::cell::Cell;
 use glam::{Mat4, Quat, Vec2, Vec3};
 
+use crate::graphics::wpgu_context::{ResourceBinding, ResourceID, ResourceScope};
+
 use super::{
     bind_group::*, 
     transform::Transform
@@ -9,7 +11,10 @@ use super::{
 
 pub trait Camera {
     /// Get the unique identifier for this camera
-    fn get_key(&self) -> String;
+    fn get_id(&self) -> ResourceID;
+
+    /// get the binding for this camera (id + slot)
+    fn get_binding(&self) -> ResourceBinding;
 
     /// Get the bind group layout builder for this camera
     fn get_layout_builder(&self) -> BindGroupLayoutBuilder;
@@ -86,14 +91,14 @@ impl Camera2D {
 
     /// Tilt the camera to the left or right relative to local z-axis
     pub fn tilt_local(&mut self, tilt: f32) {
-        let rotation = self.transform.rotation * glam::Quat::from_rotation_z(tilt);
+        let rotation = self.transform.get_rotation() * glam::Quat::from_rotation_z(tilt);
         self.transform.set_rotation(rotation);
         self.is_dirty.set(true);
     }
 
     /// Tilt the camera to the left or right relative to world z-axis
     pub fn tilt_world(&mut self, tilt: f32) {
-        let rotation = glam::Quat::from_rotation_z(tilt) * self.transform.rotation;
+        let rotation = glam::Quat::from_rotation_z(tilt) * self.transform.get_rotation();
         self.transform.set_rotation(rotation);
         self.is_dirty.set(true);
     }
@@ -113,8 +118,18 @@ impl Camera2D {
 }
 
 impl Camera for Camera2D {
-    fn get_key(&self) -> String {
-        self.key.clone()
+    fn get_id(&self) -> ResourceID {
+        ResourceID { 
+            key: self.key.clone(), 
+            scope: ResourceScope::Global 
+        }
+    }
+
+    fn get_binding(&self) -> ResourceBinding {
+        ResourceBinding {
+            id: self.get_id(),
+            slot: 0,
+        }
     }
 
     fn get_layout_builder(&self) -> BindGroupLayoutBuilder {
@@ -128,7 +143,7 @@ impl Camera for Camera2D {
     }
 
     fn get_position(&self) -> Vec3 {
-        self.transform.position
+        self.transform.get_position()
     }
 
     fn get_view_proj_mat(&self) -> glam::Mat4 {
@@ -149,7 +164,7 @@ impl Camera for Camera2D {
     /// update the camera's view-projection matrix
     fn update(&mut self) {
         if self.is_dirty() {
-            self.transform.update();
+            self.transform.to_updated();
             let view_mat = self.transform.world_matrix().inverse();
 
             let half_width = self.aspect / self.zoom;

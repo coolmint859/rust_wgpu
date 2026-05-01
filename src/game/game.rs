@@ -2,16 +2,17 @@
 
 const PI: f32 = 3.1415;
 
-use glam::Vec3;
+use glam::{Quat, Vec3};
 use rand::random;
 
 use crate::{game::particle::{ParticleConfig, ParticleSystem, Variance}, graphics::{
-    camera::{Camera, Camera2D}, entity::Entity, init_state::StateInit, presets::{MaterialPreset, RenderPipeline}, renderer::Renderer, shape_factory::Shape2D, traits::AppState, transform::Transform
+    camera::{Camera, Camera2D}, entity::{Entity, RenderInfo}, init_state::StateInit, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, renderer::Renderer, shape_factory::Shape2D, traits::AppState, transform::Transform
 }};
 
 pub struct Game {
     particles: ParticleSystem,
     blue_devils: Entity,
+    blue_square: Entity,
     camera: Camera2D,
     emit_reset_time: f32,
     curr_emit_time: f32,
@@ -36,15 +37,35 @@ impl Game {
             }
         });
 
-        let tex_pipeline = RenderPipeline::TexturedSprite.get();
         let blue_devils = Entity {
-            geometry: Shape2D::new().square(tex_pipeline.primary_vertex_layouts()),
+            geometry: Shape2D::new().square(),
             material: MaterialPreset::TexturedSprite("./assets/BlueDevilsLogo.png").with_label("blue_devils"),
-            transform: Transform::default(),
-            pipeline: tex_pipeline
+            transform: Transform::new(
+                Vec3 { x: -0.5, y: 0.0, z: 0.0 }, 
+                Quat::IDENTITY, 
+                Vec3 { x: 0.25, y: 0.25, z: 1.0 }
+            ),
+            render_info: RenderInfo {
+                shader_path: ShaderSpecPreset::TexturedSprite.path(),
+                pipeline: RenderPipeline::TexturedSprite.get()
+            }
         };
 
-        Self { particles, blue_devils, camera, emit_reset_time: 3.0, curr_emit_time: 0.0 }
+        let blue_square = Entity {
+            geometry: Shape2D::new().square(),
+            material: MaterialPreset::ColoredSprite([0.0, 0.0, 1.0, 1.0]).with_label("blue_square"),
+            transform: Transform::new(
+                Vec3 { x: 0.5, y: 0.0, z: 0.0 }, 
+                Quat::IDENTITY, 
+                Vec3 { x: 0.25, y: 0.25, z: 1.0 }
+            ),
+            render_info: RenderInfo {
+                shader_path: ShaderSpecPreset::ColoredSprite.path(),
+                pipeline: RenderPipeline::ColoredSprite.get()
+            }
+        };
+
+        Self { particles, blue_square, blue_devils, camera, emit_reset_time: 3.0, curr_emit_time: 0.0 }
     }
 }
 
@@ -79,5 +100,6 @@ impl AppState for Game {
         self.particles.render(renderer);
 
         renderer.draw(&mut self.blue_devils);
+        renderer.draw(&mut self.blue_square);
     }
 } 

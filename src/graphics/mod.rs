@@ -17,3 +17,4 @@ pub mod material;
 pub mod entity;
 pub mod shape_factory;
 pub mod geometry;
+pub mod shader;

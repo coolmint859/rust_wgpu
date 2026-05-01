@@ -1,18 +1,20 @@
 #![allow(dead_code)]
-use std::{borrow::Cow, sync::Arc};
+use std::sync::Arc;
+
+use crate::graphics::shader::ShaderSpec;
 
 use super::{
-    bind_group::BindGroupLayoutBuilder, 
     handler::ResourceBuilder,
-    vertex::VertexLayoutBuilder
 };
 
 /// Houses the environment needed to construct rendering pipelines
 #[derive(Clone)]
 pub struct RenderPipelineContext {
     pub device: Arc<wgpu::Device>,
-    pub layouts: Vec<Arc<wgpu::BindGroupLayout>>,
-    pub format: wgpu::TextureFormat
+    pub format: wgpu::TextureFormat,
+    pub shader: Arc<wgpu::ShaderModule>,
+    pub shader_spec: ShaderSpec,
+    pub bg_layouts: Vec<Arc<wgpu::BindGroupLayout>>
 }
 
 /// Allows creation of pipelines from a template.
@@ -20,32 +22,17 @@ pub struct RenderPipelineContext {
 /// Also serves as the key to the corresponding concrete render pipelines
 #[derive(Hash, Eq, PartialEq, Clone, Debug)]
 pub struct RenderPipelineBuilder {
-    pub label: String, // marked pub to allow easy identification in debugging
+    pub label: String, // marked pub to allow easy identification in debugging,
 
-    shader_path: String,
-    vs_main: String,
-    fs_main: String,
-
-    vertex_builder: VertexLayoutBuilder,
-    additional_builders: Vec<VertexLayoutBuilder>,
-    layout_ids: Vec<BindGroupLayoutBuilder>,
     topology: wgpu::PrimitiveTopology,
-
     blend_state: Option<wgpu::BlendState>,
     cull_mode: Option<wgpu::Face>,
 }
 
 impl RenderPipelineBuilder {
-    pub fn new(shader_path: &str, num_bind_groups: usize, vertex_builder: VertexLayoutBuilder) -> Self {
-        let layout_ids = vec![BindGroupLayoutBuilder::new(); num_bind_groups];
+    pub fn new() -> Self {
         Self {
             label: "default-pipeline".to_string(),
-            shader_path: shader_path.to_string(),
-            vs_main: "vs_main".to_string(),
-            fs_main: "fs_main".to_string(),
-            vertex_builder: vertex_builder,
-            additional_builders: Vec::new(),
-            layout_ids: layout_ids,
             topology: wgpu::PrimitiveTopology::TriangleList,
             blend_state: Some(wgpu::BlendState::REPLACE),
             cull_mode: Some(wgpu::Face::Back),
@@ -58,47 +45,10 @@ impl RenderPipelineBuilder {
         self
     }
 
-    /// Set the vertex stage entry function name
-    pub fn with_vertex_entry(mut self, entry: &str) -> Self {
-        self.vs_main = entry.to_string();
-        self
-    }
-
-    /// Set the fragment stage entry function name
-    pub fn with_fragment_entry(mut self, entry: &str) -> Self {
-        self.fs_main = entry.to_string();
-        self
-    }
-
     /// Set the primitive topology enum variant
     pub fn with_topology(mut self, top: wgpu::PrimitiveTopology) -> Self {
         self.topology = top;
         self
-    }
-
-    /// Add a bind group layout to the render pipeline
-    pub fn with_bg_layout(mut self, group: u32, id: BindGroupLayoutBuilder) -> Self {
-        self.layout_ids[group as usize] = id;
-        self
-    }
-
-    /// Add an additional vertex layout to the pipeline
-    pub fn with_vertex_layout(mut self, vertex_builder: VertexLayoutBuilder) -> Self {
-        self.additional_builders.push(vertex_builder);
-        self
-    }
-
-    /// Add a bind group layout to the render pipeline
-    /// 
-    /// # Panics
-    /// If the group number exceeds this pipeline's expected layout count
-    pub fn add_bg_layout(&mut self, group: u32, id: BindGroupLayoutBuilder) {
-        let idx = group as usize;
-        if idx >= self.layout_ids.len() {
-            panic!("[Render Pipeline] Group id {} exceeds expected layout count of {}", idx, self.layout_ids.len());
-        }
-
-        self.layout_ids[group as usize] = id;
     }
 
     /// Set the blend state to include alpha
@@ -124,34 +74,6 @@ impl RenderPipelineBuilder {
         self.cull_mode = None;
         self
     }
-
-    /// Get this pipeline's vertex layout builder
-    pub fn primary_vertex_layouts(&self) -> VertexLayoutBuilder {
-        self.vertex_builder.clone()
-    }
-
-    /// Get the current set layout ids
-    pub(crate) fn get_layout_ids(&self) -> Vec<BindGroupLayoutBuilder> {
-        self.layout_ids.clone()
-    }
-
-    /// create the vertex layouts from the provided builders
-    fn build_vertex_layouts(&self) -> Vec<wgpu::VertexBufferLayout<'static>> {
-        let mut layouts = Vec::new();
-        let mut currect_loc = 0;
-
-        let (loc, vertex_layout) = self.vertex_builder.build(Arc::new(currect_loc)).unwrap();
-        layouts.push(vertex_layout);
-        currect_loc = loc;
-
-        for builder in &self.additional_builders {
-            let (next_loc, layout ) = builder.build(Arc::new(currect_loc)).unwrap();
-            layouts.push(layout);
-            currect_loc = next_loc;
-        }
-
-        layouts
-    }
 }
 
 impl ResourceBuilder for RenderPipelineBuilder {
@@ -160,19 +82,7 @@ impl ResourceBuilder for RenderPipelineBuilder {
 
     /// Construct the render pipeline with the settings provided through the stored template
     fn build(&self, context: Arc<RenderPipelineContext>) -> Result<Self::Output, String> {
-        let shader_source = match std::fs::read_to_string(&self.shader_path) {
-            Ok(source) => source,
-            Err(e) => {
-                return Err(format!("Failed to read shader file '{}': {e}", self.shader_path));
-            }
-        };
-
-        let shader = context.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some(format!("{}@{}", self.label, self.shader_path).as_str()),
-            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(&shader_source)),
-        });
-
-        let layout_refs: Vec<&wgpu::BindGroupLayout> = context.layouts
+        let layout_refs: Vec<&wgpu::BindGroupLayout> = context.bg_layouts
             .iter()
             .map(|arc| arc.as_ref()) // or just &**arc
             .collect();
@@ -184,17 +94,17 @@ impl ResourceBuilder for RenderPipelineBuilder {
                 immediate_size: 0,
             }
         );
-
+        
         let vertex = wgpu::VertexState {
-            module: &shader,
-            entry_point: Some(&self.vs_main),
-            buffers: &self.build_vertex_layouts(),
+            module: &context.shader,
+            entry_point: Some(&context.shader_spec.vs_main),
+            buffers: &context.shader_spec.build_vertex_layouts(),
             compilation_options: wgpu::PipelineCompilationOptions::default(),
         };
 
         let fragment = Some(wgpu::FragmentState {
-            module: &shader,
-            entry_point: Some(&self.fs_main),
+            module: &context.shader,
+            entry_point: Some(&context.shader_spec.fs_main),
             targets: &[Some(wgpu::ColorTargetState {
                 format: context.format,
                 blend: self.blend_state,

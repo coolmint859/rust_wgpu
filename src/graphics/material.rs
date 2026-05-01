@@ -1,13 +1,13 @@
 #![allow(dead_code)]
 use std::{cell::Cell, collections::HashMap, sync::atomic::{ AtomicU32, Ordering }};
 
-use crate::graphics::wpgu_context::{ResourceBinding, ResourceID, ResourceScope};
+use crate::graphics::{bind_group::{BindGroupLayoutBuilder, LayoutBindType, LayoutEntry, LayoutVisibility}, wpgu_context::ResourceBinding};
 
 use super::{
-    bind_group::*, 
     buffer::BufferBuilder, 
     presets::TextureSampler, 
-    texture::{TextureBuilder, SamplerBuilder}
+    texture::{TextureBuilder, SamplerBuilder},
+    wpgu_context::{ResourceID, ResourceScope}
 };
 
 static MAT_COUNTER: AtomicU32 = AtomicU32::new(0);
@@ -23,11 +23,11 @@ pub enum UniformBuilder {
 }
 
 pub trait MaterialComponent {
-    /// Get the component id and binding
-    fn get_binding(&self) -> ResourceBinding;
+    /// Get the generic key and scope of this resource
+    fn get_id(&self) -> ResourceID;
 
-    /// Get the layout entry respresented by this component
-    fn get_entry(&self) -> LayoutEntry;
+    /// Get the bind type and visibility of this resource
+    fn get_vis_type(&self) -> (LayoutBindType, LayoutVisibility);
 
     /// Get the uniform builder for this component
     fn get_uniform_builder(&self) -> UniformBuilder;
@@ -40,20 +40,18 @@ pub trait MaterialComponent {
 pub struct Material {
     id: u32,
     label: String,
-    layout_map: HashMap<String, u32>,
     components: Vec<Box<dyn MaterialComponent>>,
-    layout_builder: BindGroupLayoutBuilder,
+    layout_map: HashMap<String, u32>
 }
 
 impl Material {
-    pub fn new(label: &str, layout_map: HashMap<String, u32>) -> Self {
+    pub fn new(label: &str) -> Self {
         let id = MAT_COUNTER.fetch_add(1, Ordering::SeqCst);
         Self {
             id,
             label: label.to_string(),
-            layout_map,
             components: Vec::new(),
-            layout_builder: BindGroupLayoutBuilder::new().with_label("material-uniforms")
+            layout_map: HashMap::new()
         }
     }
 
@@ -64,24 +62,11 @@ impl Material {
 
     /// Add a component to this material. The component requested is compared against this material's layout map.
     /// If the component is not in the map or the layout builder already has the component's slot occupied, an error is returned.
-    pub fn add_component(&mut self, component: impl MaterialComponent + 'static) -> Result<(), String> {
-        let comp_binding = component.get_binding();
-        let comp_key = comp_binding.id.key;
+    pub fn add_component(&mut self, component: impl MaterialComponent + 'static) {
+        let slot = self.components.len();
+        self.layout_map.insert(component.get_id().key, slot as u32);
 
-        // check if the material supports the component
-        let slot = self.layout_map.get(&comp_key)
-            .ok_or_else(|| {format!("[Material-{}] Component with label '{}' is not supported.", comp_key, self.get_key())})?;
-        
-        // check if the layout already has a component mapped to the slot
-        if self.layout_builder.has_binding(*slot) {
-            return Err(format!("[Material-{}] Layout slot #{} already is occupied.", self.get_key(), slot));
-        }
-
-        // add the component to the layout builder and internal list
-        self.layout_builder.add_entry(component.get_entry());
         self.components.push(Box::new(component));
-
-        Ok(())
     }
 
     /// Get any buffers that were updated from this material's components as a vector of key-data pairs.
@@ -89,44 +74,54 @@ impl Material {
         let mut updated: Vec<(ResourceID, Vec<u8>)> = Vec::new();
         for component in &self.components {
             // only components with buffer data need to be considered
-            if let Some((mut comp_id, data)) = component.get_buffer_updated() {
+            if let Some((mut id, data)) = component.get_buffer_updated() {
                 // inject the material's id into the component's namespace
-                comp_id.key = self.namespace_component(&comp_id.key);
-                updated.push((comp_id, data));
+                id.key = self.namespace_component(&id.key);
+                updated.push((id, data));
             }
         }
 
         updated
     }
+    
+    /// Get the 'signature' of this material in the form of a bind group layout builder
+    pub fn get_layout_builder(&self) -> BindGroupLayoutBuilder {
+        let mut builder = BindGroupLayoutBuilder::new().with_label(&self.label);
 
-    /// Get the uniforms from this material as vector of key-builder pairs
+        let mut binding = 0;
+        for component in &self.components {
+            let (ty, visibility) = component.get_vis_type();
+            builder.add_entry(LayoutEntry { binding, visibility, ty });
+            binding += 1;
+        }
+
+        builder
+    }
+
+    /// Get the uniforms from this material as vector of binding-builder pairs
     pub fn get_uniforms(&self) -> Vec<(ResourceBinding, UniformBuilder)> {
         let mut builders = Vec::new();
 
+        let mut slot = 0;
         for component in &self.components {
-            let mut comp_binding = component.get_binding();
-            let named_comp = match comp_binding.id.scope {
-                ResourceScope::Global => comp_binding,
-                _ => { // Material or Entity scope
-                    comp_binding.id.key = self.namespace_component(&comp_binding.id.key);
-                    comp_binding
-                }
+            let mut id = component.get_id();
+            id.key = match id.scope {
+                ResourceScope::Global => id.key,
+                _ => self.namespace_component(&id.key)
             };
 
-            builders.push((named_comp, component.get_uniform_builder()))
+            let binding = ResourceBinding { id, slot };
+
+            builders.push((binding, component.get_uniform_builder()));
+            slot += 1;
         }
 
         builders
     }
 
-    /// Get this material's bind group layout builder
-    pub fn get_layout(&self) -> BindGroupLayoutBuilder {
-        self.layout_builder.clone()
-    }
-
     /// Namespace a component's resource id to this material
-    fn namespace_component(&self, comp_key: &String) -> String {
-        format!("{}::{}", self.get_key(), comp_key)
+    fn namespace_component(&self, comp_label: &String) -> String {
+        format!("{}::{}", self.get_key(), comp_label)
     }
 }
 
@@ -167,30 +162,18 @@ impl ColorComponent {
         self.color = color;
         self.is_dirty.set(false);
     }
-
-    /// Get the unique id of this component
-    fn get_id(&self) -> ResourceID {
-        ResourceID {
-            key: self.label.clone(),
-            scope: ResourceScope::Entity,
-        }
-    }
 }
 
 impl MaterialComponent for ColorComponent {
-    fn get_entry(&self) -> LayoutEntry {
-        LayoutEntry { 
-            binding: self.bind_slot, 
-            visibility: LayoutVisibility::Fragment, 
-            ty: LayoutBindType::Uniform 
+    fn get_id(&self) -> ResourceID {
+        ResourceID { 
+            key: self.label.clone(), 
+            scope: ResourceScope::Entity 
         }
     }
 
-    fn get_binding(&self) -> ResourceBinding {
-        ResourceBinding { 
-            id: self.get_id(), 
-            slot: self.bind_slot
-        }
+    fn get_vis_type(&self) -> (LayoutBindType, LayoutVisibility) {
+        (LayoutBindType::Uniform, LayoutVisibility::Fragment)
     }
 
     fn get_uniform_builder(&self) -> UniformBuilder {
@@ -234,30 +217,18 @@ impl TextureComponent {
         self.bind_slot = slot;
         self
     }
-
-    /// Get the unique id of this component
-    fn get_id(&self) -> ResourceID {
-        ResourceID {
-            key: self.label.clone(),
-            scope: ResourceScope::Material,
-        }
-    }
 }
 
 impl MaterialComponent for TextureComponent {
-    fn get_binding(&self) -> ResourceBinding {
-        ResourceBinding { 
-            id: self.get_id(), 
-            slot: self.bind_slot 
+    fn get_id(&self) -> ResourceID {
+        ResourceID { 
+            key: self.label.clone(), 
+            scope: ResourceScope::Material 
         }
     }
 
-    fn get_entry(&self) -> LayoutEntry {
-        LayoutEntry { 
-            binding: self.bind_slot, 
-            visibility: LayoutVisibility::Fragment, 
-            ty: LayoutBindType::Texture 
-        }
+    fn get_vis_type(&self) -> (LayoutBindType, LayoutVisibility) {
+        (LayoutBindType::Texture, LayoutVisibility::Fragment)
     }
 
     fn get_buffer_updated(&self) -> Option<(ResourceID, Vec<u8>)> {
@@ -274,47 +245,26 @@ impl MaterialComponent for TextureComponent {
 }
 
 pub struct SamplerComponent {
+    label: String,
     sampler: TextureSampler,
-    bind_slot: u32,
 }
 
 impl SamplerComponent {
     pub fn new(sampler: TextureSampler) -> Self {
-        Self {
-            sampler,
-            bind_slot: 0
-        }
-    }
-
-    /// Set the bind slot for this component (default is 0)
-    pub fn with_bind_slot(mut self, slot: u32) -> Self {
-        self.bind_slot = slot;
-        self
-    }
-
-    /// Get the unique id of this component
-    fn get_id(&self) -> ResourceID {
-        ResourceID {
-            key: self.sampler.clone().as_key(),
-            scope: ResourceScope::Global,
-        }
+        Self { label: sampler.label(), sampler }
     }
 }
 
 impl MaterialComponent for SamplerComponent {
-    fn get_binding(&self) -> ResourceBinding {
-        ResourceBinding { 
-            id: self.get_id(), 
-            slot: self.bind_slot 
+    fn get_id(&self) -> ResourceID {
+        ResourceID { 
+            key: self.label.clone(), 
+            scope: ResourceScope::Global 
         }
     }
 
-    fn get_entry(&self) -> LayoutEntry {
-        LayoutEntry { 
-            binding: self.bind_slot, 
-            visibility: LayoutVisibility::Fragment, 
-            ty: LayoutBindType::Sampler 
-        }
+    fn get_vis_type(&self) -> (LayoutBindType, LayoutVisibility) {
+        (LayoutBindType::Sampler, LayoutVisibility::Fragment)
     }
 
     fn get_buffer_updated(&self) -> Option<(ResourceID, Vec<u8>)> {
