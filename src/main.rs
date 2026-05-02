@@ -1,7 +1,6 @@
 mod graphics;
-use graphics::wpgu_context::WgpuContext;
 use graphics::renderer::Renderer;
-use graphics::traits::AppState;
+use graphics::traits::Driver;
 
 use std::sync::Arc;
 use std::time;
@@ -13,51 +12,50 @@ use winit::{
     application::ApplicationHandler, dpi::{PhysicalSize, Size}, event::*, event_loop::{ ActiveEventLoop, ControlFlow, EventLoop }, keyboard::{ KeyCode, PhysicalKey }, window::{ Window, WindowAttributes, WindowId }
 };
 
-use crate::graphics::{camera::{Camera, Camera2D}, init_state::StateInit, tracker::ResourceTracker};
+use crate::graphics::{camera::{Camera, Camera2D}, init_state::StateInit};
 
-pub struct App<T> {
-    app_state: T,
-    wgpu_ctx: Option<WgpuContext>,
+pub struct App<D> {
+    driver: D,
+    renderer: Option<Renderer>,
     default_cam: Camera2D,
     prev_time: time::Instant,
     elapsed_time: f32,
     aspect_ratio: f32,
     attributes: WindowAttributes,
-    reader_tracker: Option<ResourceTracker>
 }
 
-impl<T: AppState> App<T> {
-    pub fn new(app_state: T, attributes: WindowAttributes) -> Self {
+impl<D: Driver> App<D> {
+    pub fn new(driver: D, attributes: WindowAttributes) -> Self {
         Self { 
             default_cam: Camera2D::new("default-camera"),
-            wgpu_ctx: None, 
+            renderer: None, 
             prev_time: time::Instant::now(),
             elapsed_time: 0.0, 
-            app_state,
+            driver,
             aspect_ratio: 1.0,
             attributes,
-            reader_tracker: Some(ResourceTracker::new())
         }
     }
 }
 
-impl<T: AppState> ApplicationHandler for App<T> {
+impl<D: Driver> ApplicationHandler for App<D> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if self.wgpu_ctx.is_none() {
+        if self.renderer.is_none() {
             let window = Arc::new(event_loop.create_window(self.attributes.clone()).unwrap());
-            let mut wgpu_ctx = pollster::block_on(WgpuContext::new(window.clone()));
+            let mut renderer = pollster::block_on(Renderer::new(window.clone()));
+            renderer.set_camera(&mut self.default_cam);
 
             let mut init_state = StateInit::new();
-            self.app_state.init(&mut init_state);
-            wgpu_ctx.init_resources(init_state);
+            self.driver.init(&mut init_state);
+            renderer.init_resources(init_state);
 
-            self.wgpu_ctx = Some(wgpu_ctx);
+            self.renderer = Some(renderer);
         }
     }
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-        let wgpu_ctx = match &mut self.wgpu_ctx {
-            Some(wgpu_ctx) => wgpu_ctx,
+        let renderer = match &mut self.renderer {
+            Some(renderer) => renderer,
             None => return
         };
 
@@ -69,40 +67,28 @@ impl<T: AppState> ApplicationHandler for App<T> {
 
         // println!("ET: {}", self.elapsed_time);
 
-        self.app_state.process_input(dt, self.elapsed_time);
-        self.app_state.update(dt, self.elapsed_time);
-
-        let reader_tracker = self.reader_tracker.take().expect("Tracker missing!");
-        self.reader_tracker = Some(wgpu_ctx.swap_trackers(reader_tracker));
+        self.driver.process_input(dt, self.elapsed_time);
+        self.driver.update(dt, self.elapsed_time);
         
-        wgpu_ctx.prepare_next_frame();
+        renderer.begin_frame(self.elapsed_time);
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _window_id: WindowId, event: WindowEvent) {
-        let wgpu_ctx = match &mut self.wgpu_ctx {
-            Some(wgpu_ctx) => wgpu_ctx,
+        let mut renderer = match &mut self.renderer {
+            Some(renderer) => renderer,
             None => return
         };
 
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(size) => {
-                wgpu_ctx.resize(size.width, size.height);
+                renderer.resize(size.width, size.height);
                 self.aspect_ratio = size.width as f32 / size.height as f32;
             },
             WindowEvent::RedrawRequested => {
                 self.default_cam.set_aspect_ratio(self.aspect_ratio);
-
-                let reader_tracker = self.reader_tracker.take().expect("Tracker Missing!");
-                let mut renderer = Renderer::new(reader_tracker, self.elapsed_time);
-                renderer.set_camera(&mut self.default_cam);
-
-                self.app_state.render(&mut renderer, self.aspect_ratio);
-
-                self.reader_tracker = Some(renderer.take_tracker());
-                wgpu_ctx.create_resources(renderer.create_cmds());
-                wgpu_ctx.update_resources(renderer.update_cmds());
-                wgpu_ctx.render(renderer).unwrap();
+                self.driver.render(&mut renderer, self.aspect_ratio);
+                renderer.end_frame();
             }
             WindowEvent::KeyboardInput {
                 event: KeyEvent {

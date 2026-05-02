@@ -1,6 +1,4 @@
 #![allow(dead_code)]
-use std::sync::Arc;
-
 use crate::graphics::{
    bind_group::{BindGroupLayoutBuilder, LayoutBindType, LayoutEntry, LayoutVisibility}, material::{ColorComponent, Material, SamplerComponent, TextureComponent}, render_pipeline::RenderPipelineBuilder, shader::ShaderSpecBuilder, texture::SamplerBuilder, vertex::VertexAttribute
 };
@@ -14,20 +12,20 @@ pub enum MaterialPreset {
 }
 
 impl MaterialPreset {
-    pub fn with_label(self, label: &str) -> Arc<Material> {
+    pub fn with_label(self, label: &str) -> Material {
         match self {
             MaterialPreset::ColoredSprite(color) => {
                 let mut material = Material::new("colored-sprite");
                 material.add_component(ColorComponent::new(label, color));
 
-                Arc::new(material)
+                material
             }
             MaterialPreset::TexturedSprite(path) => {
                 let mut material = Material::new("textured-sprite");
                 material.add_component(TextureComponent::new(label, path));
                 material.add_component(SamplerComponent::new(TextureSampler::NearestClampToEdge));
 
-                Arc::new(material)
+                material
             }
         }
     }

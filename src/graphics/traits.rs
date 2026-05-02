@@ -4,7 +4,7 @@ use crate::graphics::{
     renderer::Renderer
 };
 
-pub trait AppState {
+pub trait Driver {
     /// Called when the app changes to this state; intitializes this state of the app
     fn init(&mut self, state_init: &mut StateInit);
 

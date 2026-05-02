@@ -6,7 +6,7 @@ use glam::{Quat, Vec3};
 use rand::random;
 
 use crate::{game::particle::{ParticleConfig, ParticleSystem, Variance}, graphics::{
-    camera::{Camera, Camera2D}, entity::{Entity, RenderInfo}, init_state::StateInit, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, renderer::Renderer, shape_factory::Shape2D, traits::AppState, transform::Transform
+    camera::{Camera, Camera2D}, entity::{Entity, RenderInfo}, init_state::StateInit, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, renderer::Renderer, shape_factory::Shape2D, traits::Driver, transform::Transform
 }};
 
 pub struct Game {
@@ -69,7 +69,7 @@ impl Game {
     }
 }
 
-impl AppState for Game {
+impl Driver for Game {
     fn init(&mut self, _state_init: &mut StateInit) {
 
     }

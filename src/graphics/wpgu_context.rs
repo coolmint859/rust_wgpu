@@ -4,7 +4,7 @@ use winit::window::Window;
 use std::sync::Arc;
 
 use crate::graphics::{
-    bind_group::{BindGroupBuilder, BindGroupContext, BindGroupLayoutBuilder, BindGroupResource}, buffer::BufferContext, core::WgpuCore, geometry::{GeometryBuffer, GeometryBuilder, GeometryContext, GeometryID}, handler::{ResourceHandler, ResourceStatus}, init_state::{InitMode, StateInit}, presets::{ShaderSpecPreset, TextureSampler}, render_pipeline::{RenderPipelineBuilder, RenderPipelineContext}, renderer::{CreateCommand, Renderer, UpdateCommand}, shader::{ShaderSpec, ShaderSpecBuilder}, texture::{TextureBuilder, TextureContext}, tracker::ResourceTracker
+    bind_group::{BindGroupBuilder, BindGroupContext, BindGroupLayoutBuilder, BindGroupResource}, buffer::{BufferBuilder, BufferContext}, core::WgpuCore, entity::RenderInfo, geometry::{GeometryBuffer, GeometryBuilder, GeometryContext, GeometryID}, handler::{ResourceHandler, ResourceStatus}, init_state::{InitMode, StateInit}, presets::{ShaderSpecPreset, TextureSampler}, render_pipeline::{RenderPipelineBuilder, RenderPipelineContext}, renderer::{DrawCommand, InstanceCommand, RenderContext}, shader::{ShaderSpec, ShaderSpecBuilder}, texture::{SamplerBuilder, TextureBuilder, TextureContext},
 };
 
 /// Group binding number for global uniforms
@@ -50,7 +50,6 @@ pub struct ResourceBinding {
 /// Accepts commands generated to generate and update resources, and render objects.
 pub struct WgpuContext {
     core: WgpuCore,
-    tracker: ResourceTracker,
 
     layout_handler: ResourceHandler<BindGroupLayoutBuilder, Arc<wgpu::BindGroupLayout>>,
     pipeline_handler: ResourceHandler<RenderPipelineBuilder, wgpu::RenderPipeline>,
@@ -83,7 +82,6 @@ impl WgpuContext {
             texture_handler: ResourceHandler::new(),
             geometry_handler: ResourceHandler::new(),
             bindgroup_handler: ResourceHandler::new(),
-            tracker: ResourceTracker::new()
         }
     }
 
@@ -127,7 +125,11 @@ impl WgpuContext {
     /// initialize resources prior to rendering state
     pub fn init_resources(&mut self, init_state: StateInit) {
         for rpip_cmd in init_state.get_rpip_cmds() {
-            self.process_pipeline(&rpip_cmd.shader_path, &rpip_cmd.builder, InitMode::Deferred);
+            let render_info = RenderInfo {
+                shader_path: rpip_cmd.shader_path.clone(),
+                pipeline: rpip_cmd.builder.clone()
+            };
+            self.process_pipeline(&render_info, InitMode::Deferred);
         }
         
         for bgl_cmd in init_state.get_bgl_cmds() {
@@ -143,31 +145,46 @@ impl WgpuContext {
     }
 
     /// initialize a shader specification and associated bind group layouts
-    fn process_shader_spec(&mut self, id: String, builder: &ShaderSpecBuilder) {
+    pub fn process_shader_spec(&mut self, id: &String, builder: ShaderSpecBuilder) {
         if let Some(spec) = self.shader_spec_handler.get(&id) {
             for layout in &spec.bg_layouts {
                 let device_cpy = self.core.device.clone();
                 self.layout_handler.request_new(&layout, layout, device_cpy);
             }
         } else {
-            self.tracker.shader_specs.insert(id.clone());
-            self.shader_spec_handler.request_new(&id, builder, Arc::new(()));
+            self.shader_spec_handler.request_new(&id, &builder, Arc::new(()));
+        }
+    }
+
+    pub fn get_shader_spec(&mut self, path: &String) -> Option<ShaderSpec> {
+        if let Some(spec) = self.shader_spec_handler.get(path) {
+            for layout in &spec.bg_layouts {
+                if self.layout_handler.is_ready(layout) { continue; }
+
+                let device_cpy = self.core.device.clone();
+                self.layout_handler.request_new(&layout, layout, device_cpy);
+            }
+
+            return Some(spec.clone());
+        } else {
+            let builder = ShaderSpecPreset::from_known_path(path).unwrap();
+            self.shader_spec_handler.request_new(path, &builder, Arc::new(()));
+            return None;
         }
     }
 
     /// Initialize a new pipeline request
-    fn process_pipeline(&mut self, shader_path: &String, builder: &RenderPipelineBuilder, mode: InitMode) {
-        let shader_spec = match self.shader_spec_handler.get(shader_path) {
+    pub fn process_pipeline(&mut self, render_info: &RenderInfo, mode: InitMode) {
+        let shader_spec = match self.shader_spec_handler.get(&render_info.shader_path) {
             Some(spec) => spec,
             None => { return; }
         };
 
-        let shader_mod = match self.shader_mod_handler.get(shader_path) {
+        let shader_mod = match self.shader_mod_handler.get(&render_info.shader_path) {
             Some(module ) => module,
             None => { 
                 let device_cpy = self.core.device.clone();
-                self.tracker.shader_mods.insert(shader_path.clone());
-                self.shader_mod_handler.request_new(shader_path, &shader_spec.shader_builder, device_cpy);
+                self.shader_mod_handler.request_new(&render_info.shader_path, &shader_spec.shader_builder, device_cpy);
                 return; 
             }
         };
@@ -190,19 +207,18 @@ impl WgpuContext {
                 }
             );
 
-            self.tracker.pipelines.insert(builder.clone());
             match mode {
                 InitMode::Immediate => {
                     let _ = self.pipeline_handler.request_wait(
-                        &builder, 
-                        builder, 
+                        &render_info.pipeline, 
+                        &render_info.pipeline, 
                         Arc::clone(&rpip_context)
                     );
                 },
                 InitMode::Deferred => {
                     self.pipeline_handler.request_new(
-                        &builder, 
-                        builder, 
+                        &render_info.pipeline, 
+                        &render_info.pipeline, 
                         Arc::clone(&rpip_context)
                     );
                 }
@@ -211,7 +227,7 @@ impl WgpuContext {
     }
 
     /// initialize a new bind group request 
-    fn process_bind_group(&mut self, group_id: &String, layout_id: &BindGroupLayoutBuilder, bindings: Vec<ResourceBinding>) {
+    pub fn process_bind_group(&mut self, group_id: &String, layout_id: &BindGroupLayoutBuilder, bindings: Vec<ResourceBinding>) {
         let layout = match self.layout_handler.get(layout_id) {
             Some(layout) => layout,
             None => { return; }
@@ -246,43 +262,47 @@ impl WgpuContext {
                 layout: Arc::clone(&layout)
             });
 
-            self.tracker.bind_groups.insert(group_id.clone());
             self.bindgroup_handler.request_new(&group_id, &builder, context);
         }
     }
 
+    /// initialize a new buffer request
+    pub fn process_buffer(&mut self, id: &ResourceID, builder: &BufferBuilder) {
+        let context = Arc::new(BufferContext {
+            device: Arc::clone(&self.core.device),
+            queue: Arc::clone(&self.core.queue)
+        });
+
+        self.buffer_handler.request_new(&id, builder, context);
+    }
+
     /// initialize a new texture request
-    fn process_texture(&mut self, key: &ResourceID, builder: &TextureBuilder) {
+    pub fn process_texture(&mut self, key: &ResourceID, builder: &TextureBuilder) {
         let context = Arc::new(TextureContext {
             device: Arc::clone(&self.core.device),
             queue: Arc::clone(&self.core.queue),
         });
 
-        self.tracker.buffers.insert(key.clone());
         self.texture_handler.request_new(&key, builder, context);
     }
 
-    fn process_geometry(&mut self, shader_path: &String, geometry_key: &String, builder: &GeometryBuilder) {
-        if let Some(shader_spec) = self.shader_spec_handler.get(shader_path) {
-            let geometry_id = GeometryID {
-                key: geometry_key.clone(),
-                attrs: shader_spec.get_vertex_attributes()
-            };
+    /// initialize a new sampler request
+    pub fn process_sampler(&mut self, id: &ResourceID, builder: &SamplerBuilder) {
+        self.sampler_handler.request_new(&id, builder, Arc::clone(&self.core.device));
+    }
 
-            let buffer_context = Arc::new(BufferContext {
-                device: Arc::clone(&self.core.device),
-                queue: Arc::clone(&self.core.queue)
-            });
+    pub fn process_geometry(&mut self, geometry_id: &GeometryID, builder: &GeometryBuilder) {
+        let buffer_context = Arc::new(BufferContext {
+            device: Arc::clone(&self.core.device),
+            queue: Arc::clone(&self.core.queue)
+        });
 
-            let geometry_context = Arc::new(GeometryContext {
-                buffer_context,
-                attrs: shader_spec.vertex_attrs.clone(),
-                stride: shader_spec.vertex_stride()
-            });
+        let geometry_context = Arc::new(GeometryContext {
+            buffer_context,
+            attrs: geometry_id.attrs.clone(),
+        });
 
-            self.tracker.geometries.insert(geometry_key.clone());
-            self.geometry_handler.request_new(&geometry_id, builder, geometry_context);
-        }
+        self.geometry_handler.request_new(&geometry_id, builder, geometry_context);
     }
 
     /// Prepare the context for the next frame
@@ -300,75 +320,27 @@ impl WgpuContext {
         self.core.window.request_redraw();
     }
 
-    /// Swap the stored resource tracker with another one. This enables double buffering on resource tracking.
-    pub fn swap_trackers(&mut self, mut other: ResourceTracker) -> ResourceTracker {
-        other.clear();
-        other.copy_from(&self.tracker);
-
-        std::mem::swap(&mut self.tracker, &mut other);
-
-        other
-    }
-
     /// resize the surface that the context renders to (also resizes the window)
     pub fn resize(&mut self, width: u32, height: u32) {
         self.core.resize(width, height);
     }
 
-    /// Create resources from a list of create commands
-    pub fn create_resources(&mut self, create_cmds: &Vec<CreateCommand>) {
-        for create_cmd in create_cmds {
-            match create_cmd {
-                CreateCommand::Geometry { shader_path, key, builder} => {
-                    self.process_geometry(shader_path, key, builder);
-                },
-                CreateCommand::Buffer { id, builder } => {
-                    let context = Arc::new(BufferContext {
-                        device: Arc::clone(&self.core.device),
-                        queue: Arc::clone(&self.core.queue)
-                    });
-
-                    self.tracker.buffers.insert(id.clone());
-                    self.buffer_handler.request_new(&id, builder, context);
-                },
-                CreateCommand::Texture { id, builder } => {
-                    self.process_texture(&id, builder);
-                }
-                CreateCommand::Sampler { id, builder } => {
-                    self.tracker.samplers.insert(id.clone());
-                    self.sampler_handler.request_new(&id, builder, Arc::clone(&self.core.device));
-                }
-                CreateCommand::ShaderSpec { id, builder } => {
-                    self.process_shader_spec(id.clone(), &builder);
-                }
-                CreateCommand::RenderPipeline { shader_path, builder, mode } => {
-                    self.process_pipeline(shader_path, builder, mode.clone());
-                },
-                CreateCommand::BindGroup {id, layout_id, bindings: resource_ids } => {
-                    self.process_bind_group(id, layout_id, resource_ids.clone());
-                }
-            }
-        }
-    }
-
     /// process update commands
-    pub fn update_resources(&mut self, update_cmds: &Vec<UpdateCommand>) {
-        for update_cmd in update_cmds {
-            if let Some(buffer) = self.buffer_handler.get(&update_cmd.key) {
-                self.core.queue.write_buffer(buffer, 0, &update_cmd.data);
-            }
-            // add texture check when ready
+    pub fn update_resource(&mut self, key: ResourceID, data: &Vec<u8>) {
+        if let Some(buffer) = self.buffer_handler.get(&key) {
+            self.core.queue.write_buffer(buffer, 0, &data);
         }
+        // add texture check when ready
     }
 
     /// render commands given to the renderer instance
-    pub fn render(&mut self, renderer: Renderer) -> anyhow::Result<()> {
+    pub fn render(&mut self, render_ctx: RenderContext) -> anyhow::Result<()> {
         if !self.core.is_surface_configured() {
             return Ok(());
         }
 
         // verify camera existence
-        let camera_group = match self.bindgroup_handler.get(&renderer.get_camera_key()) {
+        let camera_group = match self.bindgroup_handler.get(&render_ctx.camera_key) {
             Some(data) => data,
             None => return Ok(()) // if the camera bind group is not ready, we can't draw anything
         };
@@ -390,7 +362,7 @@ impl WgpuContext {
                         resolve_target: None,
                         depth_slice: None,
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(*renderer.get_bg_color()),
+                            load: wgpu::LoadOp::Clear(render_ctx.bg_color),
                             store: wgpu::StoreOp::Store,
                         }
                     })],
@@ -403,8 +375,8 @@ impl WgpuContext {
 
             // draw meshes to current texture
             render_pass.set_bind_group(GLOBAL_UNIFORMS, camera_group, &[]);
-            self.draw_single(&renderer, &mut render_pass);
-            self.draw_instances(&renderer, &mut render_pass);
+            self.draw_single(&render_ctx.draw_cmds, &mut render_pass);
+            self.draw_instances(&render_ctx.instance_cmds, &mut render_pass);
         }
 
         self.core.queue.submit(std::iter::once(encoder.finish()));
@@ -414,21 +386,10 @@ impl WgpuContext {
     }
 
     /// draw meshes to the current texture using the provided render pass
-    fn draw_single(&mut self, renderer: &Renderer, render_pass: &mut wgpu::RenderPass) {
-        for draw_cmd in renderer.draw_cmds() {
-            let shader_path = &draw_cmd.render_info.shader_path;
-            let vertex_attrs = match self.shader_spec_handler.get(&shader_path) {
-                Some(shader_spec) => shader_spec.get_vertex_attributes(),
-                None => { return; }
-            };
-
-            let geo_id = GeometryID {
-                key: draw_cmd.geometry_key.clone(),
-                attrs: vertex_attrs
-            };
-
-            let geo_status = self.geometry_handler.status_of(&geo_id);
-            let pip_status = self.pipeline_handler.status_of(&draw_cmd.render_info.pipeline.clone());
+    fn draw_single(&mut self, draw_cmds: &Vec<DrawCommand>, render_pass: &mut wgpu::RenderPass) {
+        for draw_cmd in draw_cmds {
+            let geo_status = self.geometry_handler.status_of(&draw_cmd.geometry_id);
+            let pip_status = self.pipeline_handler.status_of(&draw_cmd.pipeline_id.clone());
             let u_mat_status = self.bindgroup_handler.status_of(&draw_cmd.material_key.clone());
             let u_instance_status = self.bindgroup_handler.status_of(&draw_cmd.instance_key.clone());
 
@@ -452,23 +413,12 @@ impl WgpuContext {
         }
     }
 
-    fn draw_instances(&mut self, renderer: &Renderer, render_pass: &mut wgpu::RenderPass) {
-        for insance_cmd in renderer.instance_cmds() {
-            let shader_path = &insance_cmd.render_info.shader_path;
-            let vertex_attrs = match self.shader_spec_handler.get(&shader_path) {
-                Some(shader_spec) => shader_spec.get_vertex_attributes(),
-                None => { return; }
-            };
-
-            let geo_id = GeometryID {
-                key: insance_cmd.geometry_key.clone(),
-                attrs: vertex_attrs
-            };
-
-            let geo_status = self.geometry_handler.status_of(&geo_id);
-            let pip_status = self.pipeline_handler.status_of(&insance_cmd.render_info.pipeline.clone());
+    fn draw_instances(&mut self, instance_cmds: &Vec<InstanceCommand>, render_pass: &mut wgpu::RenderPass) {
+        for insance_cmd in instance_cmds {
+            let geo_status = self.geometry_handler.status_of(&insance_cmd.geometry_id);
+            let pip_status = self.pipeline_handler.status_of(&insance_cmd.pipeline_id.clone());
             let u_mat_status = self.bindgroup_handler.status_of(&insance_cmd.material_key.clone());
-            let u_instance_status = self.buffer_handler.status_of(&insance_cmd.instance_key);
+            let u_instance_status = self.buffer_handler.status_of(&insance_cmd.instance_id);
 
             // println!("mesh ready? {}", mesh_status.is_some());
             // println!("pipeline ready? {}", pip_status.is_some());

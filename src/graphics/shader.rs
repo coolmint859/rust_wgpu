@@ -1,5 +1,5 @@
 use std::{borrow::Cow, sync::Arc};
-use crate::graphics::{bind_group::BindGroupLayoutBuilder, entity::EntityDesciptor, handler::ResourceBuilder, vertex::{VertexAttribute, VertexLayoutBuilder}};
+use crate::graphics::{bind_group::BindGroupLayoutBuilder, entity::Entity, handler::ResourceBuilder, vertex::{VertexAttribute, VertexLayoutBuilder}};
 
 #[derive(Clone, Debug)]
 pub struct ShaderSpec {
@@ -40,17 +40,17 @@ impl ShaderSpec {
     }
 
     /// validate that an entity can be drawn with this shader
-    pub fn _validate(&self, _entity: &EntityDesciptor) -> bool {
+    pub fn _validate(&self, _entity: &Entity) -> bool {
         return true;
     }
 
     /// Get the set of vertex attributes for this vertex layout
-    pub fn get_vertex_attributes(&self) -> Vec<VertexAttribute> {
-        self.vertex_attrs.iter().map(|(attr, _) | attr.clone()).collect()
+    pub fn get_vertex_attributes(&self) -> Vec<(VertexAttribute, u32)> {
+        self.vertex_attrs.clone()
     }
 
     /// Get the interleaved width of the vertex data as determined from the attributes
-    pub fn vertex_stride(&self) -> usize {
+    pub fn _vertex_stride(&self) -> usize {
         let mut stride = 0;
         for (attr, _) in &self.vertex_attrs {
             stride += attr.format().size()

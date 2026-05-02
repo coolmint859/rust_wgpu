@@ -12,7 +12,6 @@ pub mod camera;
 pub mod handler;
 pub mod texture;
 pub mod buffer;
-pub mod tracker;
 pub mod material;
 pub mod entity;
 pub mod shape_factory;

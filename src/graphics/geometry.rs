@@ -13,14 +13,13 @@ pub struct GeometryBuffer {
 pub struct GeometryContext {
     pub buffer_context: Arc<BufferContext>,
     pub attrs: Vec<(VertexAttribute, u32)>,
-    pub stride: usize
 }
 
 /// key for geometry with certain attributes
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]
 pub struct GeometryID {
     pub key: String,
-    pub attrs: Vec<VertexAttribute>
+    pub attrs: Vec<(VertexAttribute, u32)>
 }
 
 /// Represents a single vertex in a mesh
@@ -78,8 +77,8 @@ impl GeometryBuilder {
     }
 
     /// filters the geometry's vertex data into a byte vector as required by the vertex layout
-    fn pack_vertices(&self, attributes: &Vec<(VertexAttribute, u32)>, stride: usize) -> Vec<u8> {
-        let mut vertex_data: Vec<u8> = Vec::with_capacity(self.vertices.len() * stride);
+    fn pack_vertices(&self, attributes: &Vec<(VertexAttribute, u32)>) -> Vec<u8> {
+        let mut vertex_data: Vec<u8> = Vec::new();
 
         for vertex in &self.vertices {
             for (attr, _) in attributes {
@@ -126,7 +125,7 @@ impl ResourceBuilder for GeometryBuilder {
     type Output = GeometryBuffer;
 
     fn build(&self, context: Arc<Self::Context>) -> Result<Self::Output, String> {
-        let vertex_data: Vec<u8> = self.pack_vertices(&context.attrs, context.stride);
+        let vertex_data: Vec<u8> = self.pack_vertices(&context.attrs);
         let index_data: Vec<u8> = bytemuck::cast_slice(&self.indices).to_vec();
 
         let id_str = format!("{}::{}", self.label, self.attribute_str(&context.attrs));

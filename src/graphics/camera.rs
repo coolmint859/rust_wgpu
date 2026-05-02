@@ -25,16 +25,12 @@ pub trait Camera {
     /// get the position of the camera in 3D space
     fn get_position(&self) -> Vec3;
 
-    /// Check if the camera data has changed
-    fn is_dirty(&self) -> bool;
-
     /// set the aspect ratio for the camera's projection (should be called when the target dimensions change)
     fn set_aspect_ratio(&mut self, new_aspect: f32);
 
     /// Trigger the camera to update it's view-projection matrix
-    fn update(&mut self);
+    fn update(&mut self) -> bool;
 }
-
 
 /// Represents a 2D camera, using orthographic projection
 pub struct Camera2D {
@@ -150,10 +146,6 @@ impl Camera for Camera2D {
         self.view_proj_mat.clone()
     }
 
-    fn is_dirty(&self) -> bool {
-        self.is_dirty.get() || self.transform.is_dirty()
-    }
-
     fn set_aspect_ratio(&mut self, new_aspect: f32) {
         if self.aspect != new_aspect {
             self.aspect = new_aspect;
@@ -162,9 +154,8 @@ impl Camera for Camera2D {
     }
 
     /// update the camera's view-projection matrix
-    fn update(&mut self) {
-        if self.is_dirty() {
-            self.transform.to_updated();
+    fn update(&mut self) -> bool {
+        if self.is_dirty.get() || self.transform.to_updated() {
             let view_mat = self.transform.world_matrix().inverse();
 
             let half_width = self.aspect / self.zoom;
@@ -181,6 +172,8 @@ impl Camera for Camera2D {
 
             self.view_proj_mat = proj_mat * view_mat;
             self.is_dirty.set(false);
+            return true;
         }
+        return false;
     }
 }
