@@ -34,9 +34,7 @@ impl MaterialPreset {
 
 pub enum ShaderSpecPreset {
     ColoredSprite,
-    TexturedSprite,
-    ColoredSpriteInstanced,
-    TexturedSpriteInstanced
+    TexturedSprite
 }
 
 impl ShaderSpecPreset {
@@ -49,44 +47,16 @@ impl ShaderSpecPreset {
                 ty: LayoutBindType::Uniform 
             });
 
-        let transform_layout = BindGroupLayoutBuilder::new()
-            .with_label("transform")
-            .with_entry(LayoutEntry {
-                binding: 0,
-                visibility: LayoutVisibility::Vertex,
-                ty: LayoutBindType::Uniform
-            });
-
-        let colored_sprite_layout = BindGroupLayoutBuilder::new()
-            .with_label("colored-sprite")
-            .with_entry(LayoutEntry {
-                binding: 0,
-                visibility: LayoutVisibility::Fragment,
-                ty: LayoutBindType::Uniform,
-            });
-
-        let textured_sprite_layout = BindGroupLayoutBuilder::new()
-            .with_label("textured-sprite")
-            .with_entry(LayoutEntry {
-                binding: 0,
-                visibility: LayoutVisibility::Fragment,
-                ty: LayoutBindType::Texture,
-            })
-            .with_entry(LayoutEntry { 
-                binding: 1, 
-                visibility: LayoutVisibility::Fragment, 
-                ty: LayoutBindType::Sampler 
-            });
-
         match self {
             ShaderSpecPreset::ColoredSprite => {
-                ShaderSpecBuilder::new(&self.path())
-                    .with_vertex_attribute(VertexAttribute::Position, 0)
-                    .with_bg_layout(global_layout)
-                    .with_bg_layout(colored_sprite_layout)
-                    .with_bg_layout(transform_layout)
-            },
-            ShaderSpecPreset::ColoredSpriteInstanced => {
+                let colored_sprite_layout = BindGroupLayoutBuilder::new()
+                    .with_label("colored-sprite")
+                    .with_entry(LayoutEntry {
+                        binding: 0,
+                        visibility: LayoutVisibility::Fragment,
+                        ty: LayoutBindType::Uniform,
+                    });
+
                 ShaderSpecBuilder::new(&self.path())
                     .with_vertex_attribute(VertexAttribute::Position, 0)
                     .with_instance_attribute(VertexAttribute::Transform, 1)
@@ -94,14 +64,19 @@ impl ShaderSpecPreset {
                     .with_bg_layout(colored_sprite_layout)
             },
             ShaderSpecPreset::TexturedSprite => {
-                ShaderSpecBuilder::new(&self.path())
-                    .with_vertex_attribute(VertexAttribute::Position, 0)
-                    .with_vertex_attribute(VertexAttribute::UV, 1)
-                    .with_bg_layout(global_layout)
-                    .with_bg_layout(textured_sprite_layout)
-                    .with_bg_layout(transform_layout)
-            },
-            ShaderSpecPreset::TexturedSpriteInstanced => {
+                let textured_sprite_layout = BindGroupLayoutBuilder::new()
+                    .with_label("textured-sprite")
+                    .with_entry(LayoutEntry {
+                        binding: 0,
+                        visibility: LayoutVisibility::Fragment,
+                        ty: LayoutBindType::Texture,
+                    })
+                    .with_entry(LayoutEntry { 
+                        binding: 1, 
+                        visibility: LayoutVisibility::Fragment, 
+                        ty: LayoutBindType::Sampler 
+                    });
+
                 ShaderSpecBuilder::new(&self.path())
                     .with_vertex_attribute(VertexAttribute::Position, 0)
                     .with_vertex_attribute(VertexAttribute::UV, 1)
@@ -115,21 +90,15 @@ impl ShaderSpecPreset {
     pub fn path(&self) -> String {
         match self {
             ShaderSpecPreset::ColoredSprite => "src/graphics/shaders/colored_sprite.wgsl".to_string(),
-            ShaderSpecPreset::ColoredSpriteInstanced => "src/graphics/shaders/colored_sprite_instanced.wgsl".to_string(),
             ShaderSpecPreset::TexturedSprite => "src/graphics/shaders/textured_sprite.wgsl".to_string(),
-            ShaderSpecPreset::TexturedSpriteInstanced => "src/graphics/shaders/textured_sprite_instanced.wgsl".to_string(),
         }
     }
 
     pub fn from_known_path(shader_path: &String) -> Option<ShaderSpecBuilder> {
         if shader_path == &ShaderSpecPreset::ColoredSprite.path() {
             Some(ShaderSpecPreset::ColoredSprite.get())
-        } else if shader_path == &ShaderSpecPreset::ColoredSpriteInstanced.path() {
-            Some(ShaderSpecPreset::ColoredSpriteInstanced.get())
         } else if shader_path == &ShaderSpecPreset::TexturedSprite.path() {
             Some(ShaderSpecPreset::TexturedSprite.get())
-        } else if shader_path == &ShaderSpecPreset::TexturedSpriteInstanced.path() {
-            Some(ShaderSpecPreset::TexturedSpriteInstanced.get())
         } else {
             None
         }
@@ -138,14 +107,10 @@ impl ShaderSpecPreset {
 
 /// Preset rendering pipelines
 pub enum RenderPipeline {
-    /// Simple 2D colored sprite rendering pipeline
+    /// 2D colored sprite pipeline
     ColoredSprite,
-    /// 2D textured sprite rendering pipeline
+    /// 2D textured sprite pipeline
     TexturedSprite,
-    /// 2D colored sprite pipeline for multiple instances
-    ColoredSpriteInstanced,
-    /// 2D textured sprite pipeline for multiple instances
-    TexturedSpriteInstanced,
 }
 
 impl RenderPipeline {
@@ -157,13 +122,6 @@ impl RenderPipeline {
             }
             RenderPipeline::TexturedSprite => {
                 RenderPipelineBuilder::new().with_label("textured-sprite")
-                    .with_alpha_blending()
-            }
-            RenderPipeline::ColoredSpriteInstanced => {
-                RenderPipelineBuilder::new().with_label("colored-sprite-instanced")
-            },
-            RenderPipeline::TexturedSpriteInstanced => {
-                RenderPipelineBuilder::new().with_label("textured-sprite-instanced")
                     .with_custom_blending( wgpu::BlendState {
                         color: wgpu::BlendComponent {
                             src_factor: wgpu::BlendFactor::SrcAlpha,

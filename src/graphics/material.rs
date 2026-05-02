@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use std::{cell::Cell, collections::HashMap, sync::atomic::{ AtomicU32, Ordering }};
 
-use crate::graphics::{bind_group::{BindGroupLayoutBuilder, LayoutBindType, LayoutEntry, LayoutVisibility}, wpgu_context::ResourceBinding};
+use crate::graphics::{bind_group::{BindGroupLayoutBuilder, LayoutBindType, LayoutEntry, LayoutVisibility}, wpgu_context::{ResourceBinding, ResourceUpdate}};
 
 use super::{
     buffer::BufferBuilder, 
@@ -33,7 +33,7 @@ pub trait MaterialComponent {
     fn get_uniform_builder(&self) -> UniformBuilder;
 
     /// Get this component's updated buffer data, if applicable
-    fn get_buffer_updated(&self) -> Option<(ResourceID, Vec<u8>)>;
+    fn get_updated(&self) -> Option<ResourceUpdate>;
 }
 
 /// A high level description of how a mesh should look when rendered
@@ -60,8 +60,7 @@ impl Material {
         format!("{}_{}", self.label, self.id)
     }
 
-    /// Add a component to this material. The component requested is compared against this material's layout map.
-    /// If the component is not in the map or the layout builder already has the component's slot occupied, an error is returned.
+    /// Add a component to this material.
     pub fn add_component(&mut self, component: impl MaterialComponent + 'static) {
         let slot = self.components.len();
         self.layout_map.insert(component.get_id().key, slot as u32);
@@ -70,14 +69,14 @@ impl Material {
     }
 
     /// Get any buffers that were updated from this material's components as a vector of key-data pairs.
-    pub fn get_buffers_updated(&self) -> Vec<(ResourceID, Vec<u8>)> {
-        let mut updated: Vec<(ResourceID, Vec<u8>)> = Vec::new();
+    pub fn get_updated(&self) -> Vec<ResourceUpdate> {
+        let mut updated: Vec<ResourceUpdate> = Vec::new();
         for component in &self.components {
             // only components with buffer data need to be considered
-            if let Some((mut id, data)) = component.get_buffer_updated() {
+            if let Some(mut update) = component.get_updated() {
                 // inject the material's id into the component's namespace
-                id.key = self.namespace_component(&id.key);
-                updated.push((id, data));
+                update.id.key = self.namespace_component(&update.id.key);
+                updated.push(update);
             }
         }
 
@@ -184,12 +183,12 @@ impl MaterialComponent for ColorComponent {
         UniformBuilder::Buffer(builder)
     }
 
-    fn get_buffer_updated(&self) -> Option<(ResourceID, Vec<u8>)> {
+    fn get_updated(&self) -> Option<ResourceUpdate> {
         if self.is_dirty.get() {
             self.is_dirty.set(false);
 
             let data = bytemuck::bytes_of(&self.color).to_vec();
-            return Some((self.get_id(), data));
+            return Some(ResourceUpdate { id: self.get_id(), data, offset: 0 });
         }
 
         None
@@ -231,7 +230,7 @@ impl MaterialComponent for TextureComponent {
         (LayoutBindType::Texture, LayoutVisibility::Fragment)
     }
 
-    fn get_buffer_updated(&self) -> Option<(ResourceID, Vec<u8>)> {
+    fn get_updated(&self) -> Option<ResourceUpdate> {
         None // textures don't have buffers
     }
 
@@ -267,7 +266,7 @@ impl MaterialComponent for SamplerComponent {
         (LayoutBindType::Sampler, LayoutVisibility::Fragment)
     }
 
-    fn get_buffer_updated(&self) -> Option<(ResourceID, Vec<u8>)> {
+    fn get_updated(&self) -> Option<ResourceUpdate> {
         None // samplers have no buffers
     }
 

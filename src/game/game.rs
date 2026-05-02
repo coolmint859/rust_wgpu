@@ -24,7 +24,7 @@ impl Game {
         
         let particles = ParticleSystem::new( {
             ParticleConfig {
-                total_particles: 10000,
+                total_particles: 20000,
                 spawn_cap: 1000,
                 emit_center: Vec3 { x: 0.4, y: 0.5, z: 0.0},
                 size: Variance { mean: 0.02, std_dev: 0.001 },
@@ -37,33 +37,35 @@ impl Game {
             }
         });
 
-        let blue_devils = Entity {
-            geometry: Shape2D::new().square(),
-            material: MaterialPreset::TexturedSprite("./assets/BlueDevilsLogo.png").with_label("blue_devils"),
-            transform: Transform::new(
+        let blue_devils = Entity::new(
+            "blue_devils",
+            Shape2D::new().square(),
+            MaterialPreset::TexturedSprite("./assets/BlueDevilsLogo.png").with_label("blue_devils"),
+            Transform::new(
                 Vec3 { x: -0.5, y: 0.0, z: 0.0 }, 
                 Quat::IDENTITY, 
                 Vec3 { x: 0.25, y: 0.25, z: 1.0 }
             ),
-            render_info: RenderInfo {
-                shader_path: ShaderSpecPreset::TexturedSprite.path(),
-                pipeline: RenderPipeline::TexturedSprite.get()
+            RenderInfo { 
+                shader_path: ShaderSpecPreset::TexturedSprite.path(), 
+                pipeline: RenderPipeline::TexturedSprite.get() 
             }
-        };
+        );
 
-        let blue_square = Entity {
-            geometry: Shape2D::new().square(),
-            material: MaterialPreset::ColoredSprite([0.0, 0.0, 1.0, 1.0]).with_label("blue_square"),
-            transform: Transform::new(
+        let blue_square = Entity::new(
+            "blue_square",
+            Shape2D::new().square(),
+            MaterialPreset::ColoredSprite([0.0, 0.0, 1.0, 1.0]).with_label("blue_square"),
+            Transform::new(
                 Vec3 { x: 0.5, y: 0.0, z: 0.0 }, 
                 Quat::IDENTITY, 
                 Vec3 { x: 0.25, y: 0.25, z: 1.0 }
             ),
-            render_info: RenderInfo {
+            RenderInfo {
                 shader_path: ShaderSpecPreset::ColoredSprite.path(),
                 pipeline: RenderPipeline::ColoredSprite.get()
             }
-        };
+        );
 
         Self { particles, blue_square, blue_devils, camera, emit_reset_time: 3.0, curr_emit_time: 0.0 }
     }

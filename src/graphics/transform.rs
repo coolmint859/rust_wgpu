@@ -175,4 +175,9 @@ impl Transform {
         }
         return false;
     }
+
+    /// Get the size in bytes of a transform instance
+    pub fn size() -> usize {
+        return std::mem::size_of::<glam::Mat4>()
+    }
 }

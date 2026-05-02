@@ -28,8 +28,8 @@ pub trait Camera {
     /// set the aspect ratio for the camera's projection (should be called when the target dimensions change)
     fn set_aspect_ratio(&mut self, new_aspect: f32);
 
-    /// Trigger the camera to update it's view-projection matrix
-    fn update(&mut self) -> bool;
+    /// update the camera's view-projection matrix
+    fn to_updated(&mut self) -> bool;
 }
 
 /// Represents a 2D camera, using orthographic projection
@@ -154,7 +154,7 @@ impl Camera for Camera2D {
     }
 
     /// update the camera's view-projection matrix
-    fn update(&mut self) -> bool {
+    fn to_updated(&mut self) -> bool {
         if self.is_dirty.get() || self.transform.to_updated() {
             let view_mat = self.transform.world_matrix().inverse();
 

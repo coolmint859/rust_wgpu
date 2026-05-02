@@ -6,7 +6,7 @@ use rand::random;
 use rand_distr::{Distribution, Normal};
 
 use crate::graphics::{
-    entity::{EntityInstances, RenderInfo, TransformInstances}, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, renderer::Renderer, shape_factory::Shape2D, transform::Transform
+    entity::{Entity, RenderInfo}, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, renderer::Renderer, shape_factory::Shape2D, transform::Transform
 };
 
 static PARTICLE_SYS_COUNTER: AtomicU32 = AtomicU32::new(0);
@@ -72,7 +72,7 @@ pub struct ParticleSystem {
     /// the distributions for particle behavior
     dist: ParticleDistributions,
     /// the entity instances for rendering
-    instances: EntityInstances,
+    instances: Entity,
     /// particle velocities
     velocities: Vec<Vec3>,
     /// particle spins
@@ -86,18 +86,17 @@ pub struct ParticleSystem {
 impl ParticleSystem {
     pub fn new(config: ParticleConfig) -> Self {
         let id = PARTICLE_SYS_COUNTER.fetch_add(1, Ordering::SeqCst);
-        let instances = EntityInstances {
-            geometry: Shape2D::new().square().clone(),
-            material: MaterialPreset::TexturedSprite(config.texture_path).with_label("particle"),
-            transforms: TransformInstances {
-                key: format!("particle_sys_{}", id.clone()),
-                data: Vec::with_capacity(config.total_particles) 
-            },
-            render_info: RenderInfo {
-                shader_path: ShaderSpecPreset::TexturedSpriteInstanced.path(),
-                pipeline: RenderPipeline::TexturedSpriteInstanced.get(),
+
+        let instances = Entity::new_instanced(
+            "particles",
+            Shape2D::new().square(),
+            MaterialPreset::TexturedSprite(config.texture_path).with_label("particles"),
+            Vec::with_capacity(config.total_particles),
+            RenderInfo { 
+                shader_path: ShaderSpecPreset::TexturedSprite.path(), 
+                pipeline: RenderPipeline::TexturedSprite.get() 
             }
-        };
+        );
 
         let start_particles = config.spawn_cap;
         let dist = ParticleDistributions::new(&config);
@@ -120,13 +119,13 @@ impl ParticleSystem {
 
     /// spawn as many particles as possible
     pub fn burst(&mut self) {
-        let count = self.config.total_particles - self.instances.transforms.data.len();
+        let count = self.config.total_particles - self.instances.transforms.len();
         self.spawn_particles(count);
     }
 
     /// Get the number of remaining particles left - this only changes if is_one_shot is true
     pub fn remaining_particles(&self) -> usize {
-        self.instances.transforms.data.len()
+        self.instances.transforms.len()
     }
 
     /// Set the emit center for this particle system. Only reset particles will use this if is_one_shot is false.
@@ -136,11 +135,11 @@ impl ParticleSystem {
 
     /// Update the particles in this particle system.
     pub fn update(&mut self, dt: f32) {
-        if self.instances.transforms.data.len() == 0 { return; }
+        if self.instances.transforms.len() == 0 { return; }
 
         // spawn new particles if continuous
         if !self.config.is_one_shot {
-            let current_alive = self.instances.transforms.data.len();
+            let current_alive = self.instances.transforms.len();
             let available_space = self.config.total_particles.saturating_sub(current_alive);
             let to_spawn = self.config.spawn_cap.min(available_space);
 
@@ -157,10 +156,10 @@ impl ParticleSystem {
                 self.lifespans.swap_remove(i);
                 self.velocities.swap_remove(i);
                 self.spins.swap_remove(i);
-                self.instances.transforms.data.swap_remove(i);
+                self.instances.transforms.swap_remove(i);
             } else {
-                self.instances.transforms.data[i].translate(self.velocities[i] * dt);
-                self.instances.transforms.data[i].rotate_euler(0.0, 0.0, self.spins[i] * dt);
+                self.instances.transforms[i].translate(self.velocities[i] * dt);
+                self.instances.transforms[i].rotate_euler(0.0, 0.0, self.spins[i] * dt);
                 i += 1;
             }
         }
@@ -168,7 +167,7 @@ impl ParticleSystem {
 
     /// render the particles to the current texture
     pub fn render(&mut self, renderer: &mut Renderer) {
-        renderer.draw_instances(&mut self.instances);
+        renderer.draw(&mut self.instances);
     }
 
     /// spawn a batch of particles
@@ -190,7 +189,7 @@ impl ParticleSystem {
             let z_rotation = self.dist.rotation.sample(&mut rng);
             let init_rotation = Quat::from_euler(glam::EulerRot::YXZ, 0.0, 0.0, z_rotation);
 
-            self.instances.transforms.data.push(Transform::new(
+            self.instances.transforms.push(Transform::new(
                 self.config.emit_center, 
                 init_rotation, 
                 Vec3 { x: size, y: size, z: 1.0 }
