@@ -1,6 +1,6 @@
-use std::sync::{Arc, atomic::{AtomicU32, Ordering}};
+use std::sync::atomic::{AtomicU32, Ordering};
 
-use crate::graphics::{bind_group::BindGroupLayoutBuilder, geometry::GeometryBuilder, material::{Material, UniformBuilder}, render_pipeline::RenderPipelineBuilder, transform::Transform, wpgu_context::{ResourceUpdate, ResourceBinding, ResourceID, ResourceScope}};
+use crate::graphics::{data_utils::DirtyVec, geometry::Geometry, instance::{Instance, InstanceData, InstanceGroup, InstanceMut, TINT_ATTR, TRANSFORM_ATTR, TintComponent, TransformComponent}, material::{Material, UniformBuilder}, render_pipeline::RenderPipelineBuilder, transform::Transform, wpgu_context::{GeometryID, ResourceBinding, ResourceID, ResourceScope, ResourceType, ResourceUpdate}};
 
 static ENTITY_COUNTER: AtomicU32 = AtomicU32::new(0);
 
@@ -13,130 +13,156 @@ pub struct RenderInfo {
 /// Consolidates render info for multiple instances of an entity
 pub struct Entity {
     id: u32,
-    label: String,
-    pub geometry: Arc<GeometryBuilder>,
-    pub transforms: Vec<Transform>,
+    pub label: String,
+    pub geometry: Geometry,
+    pub instances: InstanceGroup,
     pub material: Material,
     pub render_info: RenderInfo
 }
 
 impl Entity {
-    pub fn new(label: &str, geometry: Arc<GeometryBuilder>, material: Material, transform: Transform, render_info: RenderInfo) -> Self {
+    pub fn new(label: &str, geometry: Geometry, material: Material, transform: Transform, render_info: RenderInfo) -> Self {
         let id = ENTITY_COUNTER.fetch_add(1, Ordering::SeqCst);
+
+        let transform = DirtyVec::from_vec(vec![transform]);
+        let tint: DirtyVec<glam::Vec4> = DirtyVec::from_vec(vec![glam::Vec4::ONE]);
+        let data = InstanceData::new(1, 1)
+            .with_attr(TRANSFORM_ATTR, transform)
+            .with_attr(TINT_ATTR, tint);
+
+        let instances = InstanceGroup::new(data)
+            .with_component(TransformComponent)
+            .with_component(TintComponent);
+
         Self { 
             id, 
             label: label.to_string(),
             geometry, 
             material, 
-            transforms: vec![transform], 
+            instances,
             render_info 
         }
     }
 
-    /// Create an entity with multiple instances
-    pub fn new_instanced(label: &str, geometry: Arc<GeometryBuilder>, material: Material, transforms: Vec<Transform>, render_info: RenderInfo) -> Self {
+    /// Create an entity with multiple instances (just transforms)
+    pub fn new_instanced(label: &str, geometry: Geometry, material: Material, instances: Vec<Transform>, render_info: RenderInfo) -> Self {
         let id = ENTITY_COUNTER.fetch_add(1, Ordering::SeqCst);
+        let active_instances = instances.len();
+        let total_instances = instances.capacity();
+        
+        let transforms = DirtyVec::from_vec(instances);
+        let data = InstanceData::new(active_instances, total_instances)
+            .with_attr(TRANSFORM_ATTR, transforms);
+        
         Self { 
             id, 
             label: label.to_string(),
             geometry, 
             material, 
-            transforms,
+            instances: InstanceGroup::new(data).with_component(TransformComponent),
             render_info 
         }
     }
 
-    /// Get this entity's transforms as series of buffer updates
+    /// Create an entity with a custom instance group
+    pub fn from_group(label: &str, geometry: Geometry, material: Material, instances: InstanceGroup, render_info: RenderInfo) -> Self {
+        let id = ENTITY_COUNTER.fetch_add(1, Ordering::SeqCst);
+        
+        Self { 
+            id, 
+            label: label.to_string(),
+            geometry, 
+            material, 
+            instances,
+            render_info 
+        }
+    }
+
+    /// Get a reference to the first instance of the entity
+    ///
+    /// Useful in cases where an entity only has one instance
+    pub fn get_first(&self) -> Option<Instance<'_>> {
+        self.instances.get_instance(0)
+    }
+
+    /// Get a reference to the first instance of the entity
+    ///
+    /// Useful in cases where an entity only has one instance
     /// 
-    /// * **is_init:** *bool* - if true, all instance transforms will be packed into one update, 
-    /// otherwise, only contiguous transforms that have changed will be packed.
-    pub fn transform_updates(&mut self, is_init: bool) -> Vec<ResourceUpdate> {
-        let mut updates = Vec::new();
-
-        if is_init {
-            updates.push(self.create_transform_update(0, self.transforms.len()));
-            return updates;
-        }
-
-        let mut span_start: Option<usize> = None;
-        for i in 0..self.transforms.len() {
-            let is_dirty = self.transforms[i].to_updated();
-
-            if is_dirty && span_start.is_none() {
-                span_start = Some(i);
-            } else if !is_dirty && span_start.is_some() {
-                let start = span_start.unwrap();
-                updates.push(self.create_transform_update(start, i));
-                span_start = None;
-            }
-        }
-
-        if let Some(start) = span_start {
-            updates.push(self.create_transform_update(start, self.transforms.len()))
-        }
-
-        // println!("{:?}", updates);
-        updates
+    /// ## Panics
+    /// If the entity has no instances defined
+    pub fn first(&self) -> Instance<'_> {
+        self.instances.get_instance(0).expect("Expected this entity to have at least one isntance, but none where found.")
     }
 
-    /// create a span of packed transform data
-    fn create_transform_update(&self, start_idx: usize, end_idx: usize) -> ResourceUpdate {
-        let mut data = Vec::new();
-        for i in start_idx..end_idx {
-            let matrix = self.transforms[i].world_matrix();
-            data.extend_from_slice(bytemuck::bytes_of(&matrix));
-        }
-
-        ResourceUpdate { 
-            id: self.transform_id(), 
-            data, 
-            offset: (start_idx * Transform::size()) as u64 
-        }
+    /// Get a mutable reference to the first instance of the entity.
+    /// 
+    /// Useful in cases where an entity only has one instance
+    pub fn get_first_mut(&mut self) -> InstanceMut<'_> {
+        self.instances.get_instance_mut(0).unwrap()
     }
 
-    /// Get the id of this entity's transform(s)
-    pub fn transform_id(&self) -> ResourceID {
+    /// Get a mutable reference to the first instance of the entity
+    ///
+    /// Useful in cases where an entity only has one instance
+    /// 
+    /// ## Panics
+    /// If the entity has no instances defined
+    pub fn first_mut(&mut self) -> InstanceMut<'_> {
+        self.instances.get_instance_mut(0).expect("Expected this entity to have at least one isntance, but none where found.")
+    }
+
+    /// Get the resource id for the instance buffer associated with this entity.
+    pub fn instance_id(&self) -> ResourceID {
         ResourceID {
-            key: format!("{}::{}_{}::transforms", self.label, self.geometry.get_label(), self.id),
-            scope: ResourceScope::Entity
+            key: self.entity_namespace(&self.instances.get_label()),
+            scope: ResourceScope::Entity,
+            r_type: ResourceType::Instance(self.instances.get_layout_builder())
         }
     }
 
-    /// Get the key to the bind group of this entity's material
-    pub fn material_key(&self) -> String {
-        format!("{}::{}", self.geometry.get_label(), self.material.get_key())
+    /// Get the resource id for the geometry buffers associated with this entity.
+    pub fn geometry_id(&self) -> GeometryID {
+        self.geometry.get_ids()
     }
 
-    /// Get the layout builder for this entity's material
-    pub fn material_layout(&self) -> BindGroupLayoutBuilder {
-        self.material.get_layout_builder()
+    /// Get the resource id for this entity's material bind group.
+    pub fn material_id(&self) -> ResourceID {
+        ResourceID {
+            key: self.entity_namespace(&self.geometry.get_label()),
+            scope: ResourceScope::Entity,
+            r_type: ResourceType::BindGroup
+        }
     }
 
     /// Get the uniforms associated with this entity's material namespaced to the entity.
     pub fn get_uniforms(&self) -> Vec<(ResourceBinding, UniformBuilder)> {
         let mut uniforms = self.material.get_uniforms();
         for (binding, _) in &mut uniforms {
-            self.uniform_namespace(&mut binding.id);
+            match binding.id.scope {
+                ResourceScope::Entity => binding.id.key = self.entity_namespace(&binding.id.key),
+                _ => ()
+            };
         }
 
         uniforms
     }
 
     /// Get this entity's uniform data as a series of updates
-    pub fn uniform_updates(&mut self) -> Vec<ResourceUpdate> {
+    pub fn uniform_updates(&mut self) -> Vec<(ResourceID, ResourceUpdate)> {
         let mut updated = self.material.get_updated();
-        for update in &mut updated {
-            self.uniform_namespace(&mut update.id);
+        for (id, _) in &mut updated {
+            match id.scope {
+                ResourceScope::Entity => id.key = self.entity_namespace(&id.key),
+                _ => ()
+            };
         }
 
         updated
     }
 
-    /// get the namespace of a uniform
-    fn uniform_namespace(&self, id: &mut ResourceID) {
-        match id.scope {
-            ResourceScope::Entity => id.key = format!("{}::{}", self.geometry.get_label(), id.key),
-            _ => ()
-        };
+    /// Namespace the provided resource key to this entity
+    fn entity_namespace(&self, resource_key: &String) -> String {
+        format!("{}_{}::{}", self.geometry.get_label(), self.id, resource_key)
     }
 }

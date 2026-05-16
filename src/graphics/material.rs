@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use std::{cell::Cell, collections::HashMap, sync::atomic::{ AtomicU32, Ordering }};
 
-use crate::graphics::{bind_group::{BindGroupLayoutBuilder, LayoutBindType, LayoutEntry, LayoutVisibility}, wpgu_context::{ResourceBinding, ResourceUpdate}};
+use crate::graphics::{bind_group::{BindGroupLayoutBuilder, LayoutBindType, LayoutEntry, LayoutVisibility}, wpgu_context::{ResourceBinding, ResourceType, ResourceUpdate}};
 
 use super::{
     buffer::BufferBuilder, 
@@ -69,14 +69,16 @@ impl Material {
     }
 
     /// Get any buffers that were updated from this material's components as a vector of key-data pairs.
-    pub fn get_updated(&self) -> Vec<ResourceUpdate> {
-        let mut updated: Vec<ResourceUpdate> = Vec::new();
+    pub fn get_updated(&self) -> Vec<(ResourceID, ResourceUpdate)> {
+        let mut updated: Vec<(ResourceID, ResourceUpdate)> = Vec::new();
         for component in &self.components {
             // only components with buffer data need to be considered
-            if let Some(mut update) = component.get_updated() {
+            if let Some(update) = component.get_updated() {
+                let mut id = component.get_id();
                 // inject the material's id into the component's namespace
-                update.id.key = self.namespace_component(&update.id.key);
-                updated.push(update);
+                id.key = self.namespace_component(&id.key);
+
+                updated.push((id, update));
             }
         }
 
@@ -167,7 +169,8 @@ impl MaterialComponent for ColorComponent {
     fn get_id(&self) -> ResourceID {
         ResourceID { 
             key: self.label.clone(), 
-            scope: ResourceScope::Entity 
+            scope: ResourceScope::Entity,
+            r_type: ResourceType::Uniform,
         }
     }
 
@@ -188,7 +191,7 @@ impl MaterialComponent for ColorComponent {
             self.is_dirty.set(false);
 
             let data = bytemuck::bytes_of(&self.color).to_vec();
-            return Some(ResourceUpdate { id: self.get_id(), data, offset: 0 });
+            return Some(ResourceUpdate { data, offset: 0 });
         }
 
         None
@@ -221,8 +224,9 @@ impl TextureComponent {
 impl MaterialComponent for TextureComponent {
     fn get_id(&self) -> ResourceID {
         ResourceID { 
-            key: self.label.clone(), 
-            scope: ResourceScope::Material 
+            key: self.path.clone(), 
+            scope: ResourceScope::Material,
+            r_type: ResourceType::Texture,
         }
     }
 
@@ -258,7 +262,8 @@ impl MaterialComponent for SamplerComponent {
     fn get_id(&self) -> ResourceID {
         ResourceID { 
             key: self.label.clone(), 
-            scope: ResourceScope::Global 
+            scope: ResourceScope::Global,
+            r_type: ResourceType::Sampler,
         }
     }
 

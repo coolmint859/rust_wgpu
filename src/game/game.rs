@@ -2,72 +2,51 @@
 
 const PI: f32 = 3.1415;
 
-use glam::{Quat, Vec3};
-use rand::random;
+use glam::Vec3;
 
 use crate::{game::particle::{ParticleConfig, ParticleSystem, Variance}, graphics::{
-    camera::{Camera, Camera2D}, entity::{Entity, RenderInfo}, init_state::StateInit, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, renderer::Renderer, shape_factory::Shape2D, traits::Driver, transform::Transform
+    camera::{Camera, Camera2D}, entity::{Entity, RenderInfo}, geometry::{Geometry, PositionComponent, UVComponent}, init_state::StateInit, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, renderer::Renderer, shape_factory::Shape2D, traits::Driver, transform::Transform
 }};
 
 pub struct Game {
     particles: ParticleSystem,
     blue_devils: Entity,
-    blue_square: Entity,
     camera: Camera2D,
-    emit_reset_time: f32,
-    curr_emit_time: f32,
 }
 
 impl Game {
     pub fn new() -> Self {
         let camera = Camera2D::new("camera-2d");
         
-        let particles = ParticleSystem::new( {
-            ParticleConfig {
-                total_particles: 20000,
-                spawn_cap: 1000,
-                emit_center: Vec3 { x: 0.4, y: 0.5, z: 0.0},
-                size: Variance { mean: 0.02, std_dev: 0.001 },
-                speed: Variance { mean: 0.5, std_dev: 0.2 },
-                lifespan: Variance { mean: 2.0, std_dev: 0.2 },
-                rotation: Variance { mean: 0.3, std_dev: 0.001 },
-                spin: Variance { mean: 5.0, std_dev: 2.0 },
-                texture_path: "./assets/fire.png",
-                is_one_shot: false
-            }
-        });
+        let geometry = Geometry::new(Shape2D::new().square())
+            .with_component(PositionComponent)
+            .with_component(UVComponent);
 
         let blue_devils = Entity::new(
-            "blue_devils",
-            Shape2D::new().square(),
-            MaterialPreset::TexturedSprite("./assets/BlueDevilsLogo.png").with_label("blue_devils"),
-            Transform::new(
-                Vec3 { x: -0.5, y: 0.0, z: 0.0 }, 
-                Quat::IDENTITY, 
-                Vec3 { x: 0.25, y: 0.25, z: 1.0 }
-            ),
-            RenderInfo { 
-                shader_path: ShaderSpecPreset::TexturedSprite.path(), 
-                pipeline: RenderPipeline::TexturedSprite.get() 
-            }
-        );
-
-        let blue_square = Entity::new(
-            "blue_square",
-            Shape2D::new().square(),
-            MaterialPreset::ColoredSprite([0.0, 0.0, 1.0, 1.0]).with_label("blue_square"),
-            Transform::new(
-                Vec3 { x: 0.5, y: 0.0, z: 0.0 }, 
-                Quat::IDENTITY, 
-                Vec3 { x: 0.25, y: 0.25, z: 1.0 }
-            ),
+            "blue-devils",
+            geometry,
+            MaterialPreset::TexturedSprite("./assets/BlueDevilsLogo.png".to_string()).with_label("blue-devils"),
+            Transform::identity(),
             RenderInfo {
-                shader_path: ShaderSpecPreset::ColoredSprite.path(),
-                pipeline: RenderPipeline::ColoredSprite.get()
+                shader_path: ShaderSpecPreset::TexturedSprite.path(),
+                pipeline: RenderPipeline::TexturedSprite.get()
             }
         );
 
-        Self { particles, blue_square, blue_devils, camera, emit_reset_time: 3.0, curr_emit_time: 0.0 }
+        let particles = ParticleSystem::new(ParticleConfig {
+            total_particles: 5000,
+            spawn_cap: 500,
+            emit_center: Vec3 { x: 0.4, y: 0.5, z: 0.0 },
+            size: Variance { mean: 0.02, std_dev: 0.001 },
+            speed: Variance { mean: 0.5, std_dev: 0.2 },
+            lifespan: Variance { mean: 2.00, std_dev: 0.2 },
+            rotation: Variance { mean: 0.3, std_dev: 0.001 },
+            spin: Variance { mean: 5.0, std_dev: 2.0 },
+            texture_path: "./assets/fire.png",
+            is_one_shot: false
+        });
+
+        Self { particles, blue_devils, camera, }
     }
 }
 
@@ -80,17 +59,9 @@ impl Driver for Game {
         
     }
 
-    fn update(&mut self, dt: f32, _et: f32) {
+    fn update(&mut self, dt: f32, et: f32) {
+        self.blue_devils.first_mut().transform_mut().set_x(et-1.0);
         self.particles.update(dt);
-
-        if self.curr_emit_time >= self.emit_reset_time {
-            let x = random::<f32>() - 0.5;
-            let y = random::<f32>() - 0.5;
-            self.particles.set_emit_center(Vec3 { x, y, z: 0.0 });
-            self.curr_emit_time = 0.0;
-        } else {
-            self.curr_emit_time += dt;
-        }
     }
 
     fn render(&mut self, renderer: &mut Renderer, aspect: f32) {
@@ -99,9 +70,8 @@ impl Driver for Game {
         // renderer.set_bg_color(0.392, 0.584, 0.929);
         renderer.set_camera(&mut self.camera);
 
-        self.particles.render(renderer);
-
         renderer.draw(&mut self.blue_devils);
-        renderer.draw(&mut self.blue_square);
+
+        self.particles.render(renderer);
     }
 } 

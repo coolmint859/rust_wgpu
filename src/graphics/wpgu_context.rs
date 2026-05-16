@@ -4,7 +4,7 @@ use winit::window::Window;
 use std::sync::Arc;
 
 use crate::graphics::{
-    bind_group::{BindGroupBuilder, BindGroupContext, BindGroupLayoutBuilder, BindGroupResource}, buffer::{BufferBuilder, BufferContext}, core::WgpuCore, entity::RenderInfo, geometry::{GeometryBuffer, GeometryBuilder, GeometryContext, GeometryID}, handler::{ResourceHandler, ResourceStatus}, init_state::{InitMode, StateInit}, presets::{ShaderSpecPreset, TextureSampler}, render_pipeline::{RenderPipelineBuilder, RenderPipelineContext}, renderer::{DrawCommand, RenderContext}, shader::{ShaderSpec, ShaderSpecBuilder}, texture::{SamplerBuilder, TextureBuilder, TextureContext},
+    bind_group::{BindGroupBuilder, BindGroupContext, BindGroupLayoutBuilder, BindGroupResource}, buffer::{BufferBuilder, BufferContext}, core::WgpuCore, entity::RenderInfo, geometry::GeometrySignature, handler::{ResourceHandler, ResourceStatus}, init_state::{InitMode, StateInit}, presets::{ShaderSpecPreset, TextureSampler}, render_pipeline::{RenderPipelineBuilder, RenderPipelineContext}, renderer::{DrawCommand, RenderContext}, shader::ShaderSpec, texture::{SamplerBuilder, TextureBuilder, TextureContext}, vertex::VertexLayoutBuilder,
 };
 
 /// Group binding number for global uniforms
@@ -12,19 +12,40 @@ pub const GLOBAL_UNIFORMS: u32 = 0;
 /// Group binding number for material uniforms
 pub const MATERIAL_UNIFORMS: u32 = 1;
 
-/// vertex slot number for geometry buffers
-pub const GEOMETRY_BUFFER: u32 = 0;
-/// vertex slot number for transform buffers
-pub const TRANSFORM_BUFFER: u32 = 1;
+/// vertex slot number for vertex buffers
+pub const VERTEX_BUFFER: u32 = 0;
+/// vertex slot number for instance buffers
+pub const INSTANCE_BUFFER: u32 = 1;
+
+/// Specfies the type of resource stored
+#[derive(Clone, Hash, PartialEq, Eq, Debug)]
+pub enum ResourceType {
+    /// A uniform buffer
+    Uniform,
+    /// A vertex buffer with vertex step mode
+    Vertex(VertexLayoutBuilder),
+    /// A vertex buffer with instance step mode
+    Instance(VertexLayoutBuilder),
+    /// An index buffer
+    Index,
+    /// A storage buffer
+    Storage,
+    /// A texture view
+    Texture,
+    /// A texture sampler
+    Sampler,
+    /// a bind group
+    BindGroup,
+}
 
 /// Specifies the scope for which a resource should be namespaced (allows different levels of resource sharing)
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]
 pub enum ResourceScope {
-    /// Resources are scoped to individual entities; no sharing (best used for buffers)
+    /// Resources are scoped to individual entities and not shared (best used for buffers)
     Entity,
-    /// Resources are scoped to materials; shared between entities (best used for textures)
+    /// Resources are scoped to materials and shared between entities (best used for textures)
     Material,
-    /// Resources are globally scoped; shared everywhere (best used for samplers)
+    /// Resources are globally scoped and are shared everywhere (best used for samplers)
     Global
 }
 
@@ -35,6 +56,8 @@ pub struct ResourceID {
     pub key: String,
     /// The namespaced scope of a resource
     pub scope: ResourceScope,
+    /// The resource type
+    pub r_type: ResourceType
 }
 
 /// The specific binding of a resource when used in a bind group
@@ -46,11 +69,17 @@ pub struct ResourceBinding {
     pub slot: u32,
 }
 
+/// Encapsulates the ids for geometry buffers
+#[derive(Clone, Hash, PartialEq, Eq, Debug)]
+pub struct GeometryID {
+    pub vertex_id: ResourceID,
+    pub index_id: ResourceID,
+    pub indices: u32,
+}
 
-/// The specific binding of a resource when used in a bind group
+/// Update resource data using suballocation
 #[derive(Clone, Debug)]
 pub struct ResourceUpdate {
-    pub id: ResourceID,
     pub data: Vec<u8>,
     pub offset: u64,
 }
@@ -63,7 +92,8 @@ pub struct ResourceUpdate {
 pub struct WgpuContext {
     core: WgpuCore,
 
-    layout_handler: ResourceHandler<BindGroupLayoutBuilder, Arc<wgpu::BindGroupLayout>>,
+    bg_layout_handler: ResourceHandler<BindGroupLayoutBuilder, Arc<wgpu::BindGroupLayout>>,
+    vertex_layout_handler: ResourceHandler<VertexLayoutBuilder, Arc<wgpu::VertexBufferLayout<'static>>>,
     pipeline_handler: ResourceHandler<RenderPipelineBuilder, wgpu::RenderPipeline>,
     shader_spec_handler: ResourceHandler<String, ShaderSpec>,
     shader_mod_handler: ResourceHandler<String, Arc<wgpu::ShaderModule>>,
@@ -71,9 +101,7 @@ pub struct WgpuContext {
     buffer_handler: ResourceHandler<ResourceID, Arc<wgpu::Buffer>>,
     texture_handler: ResourceHandler<ResourceID, Arc<TextureView>>,
     sampler_handler: ResourceHandler<ResourceID, Arc<wgpu::Sampler>>,
-
-    geometry_handler: ResourceHandler<GeometryID, GeometryBuffer>,
-    bindgroup_handler: ResourceHandler<String, wgpu::BindGroup>,
+    bindgroup_handler: ResourceHandler<ResourceID, wgpu::BindGroup>,
 }
 
 impl WgpuContext {
@@ -87,12 +115,12 @@ impl WgpuContext {
             core,
             sampler_handler,
             shader_spec_handler,
-            layout_handler: ResourceHandler::new(),
+            bg_layout_handler: ResourceHandler::new(),
+            vertex_layout_handler: ResourceHandler::new(),
             pipeline_handler: ResourceHandler::new(),
             shader_mod_handler: ResourceHandler::new(),
             buffer_handler: ResourceHandler::new(),
             texture_handler: ResourceHandler::new(),
-            geometry_handler: ResourceHandler::new(),
             bindgroup_handler: ResourceHandler::new(),
         }
     }
@@ -115,7 +143,8 @@ impl WgpuContext {
         let _ = sampler_handler.request_wait(
             &ResourceID { 
                 key: TextureSampler::NearestClampToEdge.label(),
-                scope: ResourceScope::Global 
+                scope: ResourceScope::Global,
+                r_type: ResourceType::Sampler,
             }, 
             &TextureSampler::NearestClampToEdge.get(), 
             Arc::clone(&core.device)
@@ -123,7 +152,8 @@ impl WgpuContext {
         let _ = sampler_handler.request_wait(
             &ResourceID { 
                 key: TextureSampler::NearestRepeat.label(),
-                scope: ResourceScope::Global 
+                scope: ResourceScope::Global,
+                r_type: ResourceType::Sampler
             },
             &TextureSampler::NearestRepeat.get(), 
             Arc::clone(&core.device)
@@ -145,42 +175,35 @@ impl WgpuContext {
         for bgl_cmd in init_state.get_bgl_cmds() {
             match bgl_cmd.mode {
                 InitMode::Immediate => {
-                    let _ = self.layout_handler.request_wait(&bgl_cmd.builder, &bgl_cmd.builder, Arc::clone(&self.core.device));
+                    let _ = self.bg_layout_handler.request_wait(&bgl_cmd.builder, &bgl_cmd.builder, Arc::clone(&self.core.device));
                 },
                 InitMode::Deferred => {
-                    self.layout_handler.request_new(&bgl_cmd.builder, &bgl_cmd.builder, Arc::clone(&self.core.device));
+                    self.bg_layout_handler.request_new(&bgl_cmd.builder, &bgl_cmd.builder, Arc::clone(&self.core.device));
                 }
             }
         }
     }
 
-    /// initialize a shader specification and associated bind group layouts
-    pub fn process_shader_spec(&mut self, id: &String, builder: ShaderSpecBuilder) {
-        if let Some(spec) = self.shader_spec_handler.get(&id) {
-            for layout in &spec.bg_layouts {
-                let device_cpy = self.core.device.clone();
-                self.layout_handler.request_new(&layout, layout, device_cpy);
-            }
-        } else {
-            self.shader_spec_handler.request_new(&id, &builder, Arc::new(()));
-        }
-    }
-
-    /// request a shader spec and return it if ready
-    pub fn init_shader_spec(&mut self, path: &String) -> Option<ShaderSpec> {
+    /// initialize a shader specifcation
+    pub fn process_shader_spec(&mut self, path: &String) {
         if let Some(spec) = self.shader_spec_handler.get(path) {
             for layout in &spec.bg_layouts {
-                if self.layout_handler.is_ready(layout) { continue; }
+                if self.bg_layout_handler.is_ready(layout) { continue; }
 
                 let device_cpy = self.core.device.clone();
-                self.layout_handler.request_new(&layout, layout, device_cpy);
+                self.bg_layout_handler.request_new(&layout, layout, device_cpy);
             }
 
-            return Some(spec.clone());
+            let builders = spec.build_vertex_layouts();
+            if let Some(v_builder) = builders.vertex {
+                self.vertex_layout_handler.request_new(&v_builder, &v_builder,Arc::new(()));
+            }
+            if let Some(i_builder) = builders.instance {
+                self.vertex_layout_handler.request_new(&i_builder, &i_builder, Arc::new(()));
+            }
         } else {
             let builder = ShaderSpecPreset::from_known_path(path).unwrap();
             self.shader_spec_handler.request_new(path, &builder, Arc::new(()));
-            return None;
         }
     }
 
@@ -202,21 +225,44 @@ impl WgpuContext {
             }
         };
 
-        let mut layouts = Vec::new();
+        let mut bg_layouts = Vec::new();
         for id in &shader_spec.bg_layouts {
-            if let Some(layout) = self.layout_handler.get(&id) {
-                layouts.push(Arc::clone(layout));
+            if let Some(layout) = self.bg_layout_handler.get(&id) {
+                bg_layouts.push(Arc::clone(layout));
             }
         }
 
-        if layouts.len() == shader_spec.bg_layouts.len() {
+        let vertex_builders = shader_spec.build_vertex_layouts();
+        let mut vertex_layouts = Vec::new();
+        let mut vl_ready = true;
+        if let Some(vertex) = &vertex_builders.vertex {
+            if let Some(layout) = self.vertex_layout_handler.get(vertex) {
+                vertex_layouts.push(Arc::clone(layout));
+            } else {
+                vl_ready = false;
+            }
+        }
+
+        let mut il_ready = true;
+        if let Some(instance) = &vertex_builders.instance {
+            if let Some(layout) = self.vertex_layout_handler.get(instance) {
+                vertex_layouts.push(Arc::clone(layout));
+            } else {
+                il_ready = false;
+            }
+        }
+
+        let bgl_ready = bg_layouts.len() == shader_spec.bg_layouts.len();
+
+        if bgl_ready && vl_ready && il_ready {
             let rpip_context = Arc::new(
                 RenderPipelineContext {
                     device: Arc::clone(&self.core.device),
-                    bg_layouts: layouts,
+                    bg_layouts,
                     format: self.core.config.format.clone(),
                     shader: shader_mod.clone(),
-                    shader_spec: shader_spec.clone()
+                    shader_spec: shader_spec.clone(),
+                    vertex_layouts
                 }
             );
 
@@ -240,10 +286,10 @@ impl WgpuContext {
     }
 
     /// initialize a new bind group request 
-    pub fn process_bind_group(&mut self, group_id: &String, layout_id: &BindGroupLayoutBuilder, bindings: Vec<ResourceBinding>) {
+    pub fn process_bind_group(&mut self, group_id: &ResourceID, layout_id: &BindGroupLayoutBuilder, bindings: Vec<ResourceBinding>) {
         if self.bindgroup_handler.contains(group_id) { return; }
         
-        let layout = match self.layout_handler.get(layout_id) {
+        let layout = match self.bg_layout_handler.get(layout_id) {
             Some(layout) => layout,
             None => { return; }
         };
@@ -269,7 +315,7 @@ impl WgpuContext {
         // all resources found, safe to create bind group
         if resource_pairs.len() == bindings.len() {
             let builder = BindGroupBuilder::new()
-                .with_label(&group_id)
+                .with_label(&group_id.key)
                 .with_resources(resource_pairs);
 
             let context = Arc::new(BindGroupContext {
@@ -317,26 +363,23 @@ impl WgpuContext {
         self.sampler_handler.request_new(&id, builder, Arc::clone(&self.core.device));
     }
 
-    pub fn process_geometry(&mut self, geometry_id: &GeometryID, builder: &GeometryBuilder) {
-        if self.geometry_handler.contains(geometry_id) { return; }
+    pub fn process_geometry(&mut self, geometry_sig: GeometrySignature) {
+        let vtx_buffer_exists = self.buffer_handler.contains(&geometry_sig.ids.vertex_id);
+        let idx_buffer_exists = self.buffer_handler.contains(&geometry_sig.ids.index_id);
+        if vtx_buffer_exists && idx_buffer_exists { return; }
         
         let buffer_context = Arc::new(BufferContext {
             device: Arc::clone(&self.core.device),
             queue: Arc::clone(&self.core.queue)
         });
 
-        let geometry_context = Arc::new(GeometryContext {
-            buffer_context,
-            attrs: geometry_id.attrs.clone(),
-        });
-
-        self.geometry_handler.request_new(&geometry_id, builder, geometry_context);
+        self.buffer_handler.request_new(&geometry_sig.ids.vertex_id, &geometry_sig.vertex_builder, Arc::clone(&buffer_context));
+        self.buffer_handler.request_new(&geometry_sig.ids.index_id, &geometry_sig.index_builder, Arc::clone(&buffer_context));
     }
 
     /// Prepare the context for the next frame
     pub fn prepare_next_frame(&mut self) {
-        self.layout_handler.sync();
-        self.geometry_handler.sync();
+        self.bg_layout_handler.sync();
         self.pipeline_handler.sync();
         self.bindgroup_handler.sync();
         self.buffer_handler.sync();
@@ -344,6 +387,7 @@ impl WgpuContext {
         self.sampler_handler.sync();
         self.shader_spec_handler.sync();
         self.shader_mod_handler.sync();
+        self.vertex_layout_handler.sync();
 
         self.core.window.request_redraw();
     }
@@ -354,8 +398,8 @@ impl WgpuContext {
     }
 
     /// process update commands
-    pub fn update_resource(&mut self, update: ResourceUpdate) {
-        if let Some(buffer) = self.buffer_handler.get(&update.id) {
+    pub fn update_resource(&mut self, id: &ResourceID, update: ResourceUpdate) {
+        if let Some(buffer) = self.buffer_handler.get(id) {
             self.core.queue.write_buffer(buffer, update.offset, &update.data);
         }
         // add texture check when ready
@@ -368,7 +412,7 @@ impl WgpuContext {
         }
 
         // verify camera existence
-        let camera_group = match self.bindgroup_handler.get(&render_ctx.camera_key) {
+        let camera_group = match self.bindgroup_handler.get(&render_ctx.global_id) {
             Some(data) => data,
             None => return Ok(()) // if the camera bind group is not ready, we can't draw anything
         };
@@ -414,9 +458,10 @@ impl WgpuContext {
 
     fn draw_instances(&mut self, draw_cmds: &Vec<DrawCommand>, render_pass: &mut wgpu::RenderPass) {
         for command in draw_cmds {
-            let geo_status = self.geometry_handler.status_of(&command.geometry_id);
-            let pip_status = self.pipeline_handler.status_of(&command.pipeline_id.clone());
-            let u_mat_status = self.bindgroup_handler.status_of(&command.material_key.clone());
+            let vert_status = self.buffer_handler.status_of(&command.geometry_id.vertex_id);
+            let idx_status = self.buffer_handler.status_of(&command.geometry_id.index_id);
+            let pip_status = self.pipeline_handler.status_of(&command.pipeline_id);
+            let u_mat_status = self.bindgroup_handler.status_of(&command.material_id);
             let u_instance_status = self.buffer_handler.status_of(&command.instance_id);
 
             // println!("mesh ready? {}", geo_status.is_some());
@@ -424,17 +469,18 @@ impl WgpuContext {
             // println!("material ready? {}", u_mat_status.is_some());
             // println!("transforms ready? {}", u_instance_status.is_some());
 
-            if let (Some(ResourceStatus::Ready(geometry)), 
+            if let (Some(ResourceStatus::Ready(vtx_buffer)),
+                    Some(ResourceStatus::Ready(idx_buffer)),
                     Some(ResourceStatus::Ready(pipeline)), 
                     Some(ResourceStatus::Ready(u_material)),
-                    Some(ResourceStatus::Ready(u_instance))) = (geo_status, pip_status, u_mat_status, u_instance_status) 
+                    Some(ResourceStatus::Ready(u_instance))) = (vert_status, idx_status, pip_status, u_mat_status, u_instance_status) 
             {
                 render_pass.set_pipeline(pipeline);
                 render_pass.set_bind_group(MATERIAL_UNIFORMS, u_material, &[]);
-                render_pass.set_vertex_buffer(GEOMETRY_BUFFER, geometry.vertex_buffer.slice(..));
-                render_pass.set_vertex_buffer(TRANSFORM_BUFFER, u_instance.slice(..));
-                render_pass.set_index_buffer(geometry.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                render_pass.draw_indexed(0..geometry.num_indices, 0, 0..command.instances);
+                render_pass.set_vertex_buffer(VERTEX_BUFFER, vtx_buffer.slice(..));
+                render_pass.set_vertex_buffer(INSTANCE_BUFFER, u_instance.slice(..));
+                render_pass.set_index_buffer(idx_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass.draw_indexed(0..command.geometry_id.indices, 0, 0..command.instances);
             }
         }
     }

@@ -14,7 +14,8 @@ pub struct RenderPipelineContext {
     pub format: wgpu::TextureFormat,
     pub shader: Arc<wgpu::ShaderModule>,
     pub shader_spec: ShaderSpec,
-    pub bg_layouts: Vec<Arc<wgpu::BindGroupLayout>>
+    pub bg_layouts: Vec<Arc<wgpu::BindGroupLayout>>,
+    pub vertex_layouts: Vec<Arc<wgpu::VertexBufferLayout<'static>>>,
 }
 
 /// Allows creation of pipelines from a template.
@@ -35,7 +36,7 @@ impl RenderPipelineBuilder {
             label: "default-pipeline".to_string(),
             topology: wgpu::PrimitiveTopology::TriangleList,
             blend_state: Some(wgpu::BlendState::REPLACE),
-            cull_mode: Some(wgpu::Face::Back),
+            cull_mode: None,
         }
     }
 
@@ -82,15 +83,20 @@ impl ResourceBuilder for RenderPipelineBuilder {
 
     /// Construct the render pipeline with the settings provided through the stored template
     fn build(&self, context: Arc<RenderPipelineContext>) -> Result<Self::Output, String> {
-        let layout_refs: Vec<&wgpu::BindGroupLayout> = context.bg_layouts
+        let bg_layout_refs: Vec<&wgpu::BindGroupLayout> = context.bg_layouts
             .iter()
             .map(|arc| arc.as_ref()) // or just &**arc
+            .collect();
+
+        let vt_layout_refs: Vec<wgpu::VertexBufferLayout<'static>> = context.vertex_layouts
+            .iter()
+            .map(|arc| arc.as_ref().clone()) // or just &**arc
             .collect();
 
         let pipeline_layout = context.device.create_pipeline_layout(
             &wgpu::PipelineLayoutDescriptor {
                 label: Some(&self.label),
-                bind_group_layouts: &layout_refs,
+                bind_group_layouts: &bg_layout_refs,
                 immediate_size: 0,
             }
         );
@@ -98,7 +104,7 @@ impl ResourceBuilder for RenderPipelineBuilder {
         let vertex = wgpu::VertexState {
             module: &context.shader,
             entry_point: Some(&context.shader_spec.vs_main),
-            buffers: &context.shader_spec.build_vertex_layouts(),
+            buffers: &vt_layout_refs,
             compilation_options: wgpu::PipelineCompilationOptions::default(),
         };
 

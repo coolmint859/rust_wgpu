@@ -1,12 +1,12 @@
 #![allow(dead_code)]
 use std::{f32::consts::PI, sync::atomic::{AtomicU32, Ordering}};
 
-use glam::{Quat, Vec3};
+use glam::{Quat, Vec3, Vec4};
 use rand::random;
 use rand_distr::{Distribution, Normal};
 
 use crate::graphics::{
-    entity::{Entity, RenderInfo}, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, renderer::Renderer, shape_factory::Shape2D, transform::Transform
+    data_utils::DirtyVec, entity::{Entity, RenderInfo}, geometry::{Geometry, PositionComponent, UVComponent}, instance::{InstanceData, InstanceGroup, InstanceTemplate, TINT_ATTR, TRANSFORM_ATTR, TintComponent, TransformComponent}, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, renderer::Renderer, shape_factory::Shape2D, transform::Transform
 };
 
 static PARTICLE_SYS_COUNTER: AtomicU32 = AtomicU32::new(0);
@@ -71,8 +71,10 @@ pub struct ParticleSystem {
     config: ParticleConfig,
     /// the distributions for particle behavior
     dist: ParticleDistributions,
-    /// the entity instances for rendering
-    instances: Entity,
+    /// the particle instances for rendering
+    particles: Entity,
+    /// instance template for creating individual particles
+    template: InstanceTemplate,
     /// particle velocities
     velocities: Vec<Vec3>,
     /// particle spins
@@ -86,17 +88,37 @@ pub struct ParticleSystem {
 impl ParticleSystem {
     pub fn new(config: ParticleConfig) -> Self {
         let id = PARTICLE_SYS_COUNTER.fetch_add(1, Ordering::SeqCst);
+        
+        let geometry_data = Shape2D::new().square();
+        let geometry = Geometry::new(geometry_data.clone())
+            .with_component(PositionComponent)
+            .with_component(UVComponent);
 
-        let instances = Entity::new_instanced(
+        let transforms: DirtyVec<Transform> = DirtyVec::from_vec(Vec::with_capacity(config.total_particles));
+        let tints: DirtyVec<glam::Vec4> = DirtyVec::from_vec(Vec::with_capacity(config.total_particles));
+
+        let instance_data= InstanceData::new(0, config.total_particles)
+            .with_attr(TRANSFORM_ATTR, transforms)
+            .with_attr(TINT_ATTR, tints);
+
+        let instance_group = InstanceGroup::new(instance_data)
+            .with_component(TransformComponent)
+            .with_component(TintComponent);
+
+        let particles = Entity::from_group(
             "particles",
-            Shape2D::new().square(),
-            MaterialPreset::TexturedSprite(config.texture_path).with_label("particles"),
-            Vec::with_capacity(config.total_particles),
+            geometry,
+            MaterialPreset::TexturedSprite(config.texture_path.to_string()).with_label("particles"),
+            instance_group,
             RenderInfo { 
                 shader_path: ShaderSpecPreset::TexturedSprite.path(), 
                 pipeline: RenderPipeline::TexturedSprite.get() 
             }
         );
+
+        let template = InstanceTemplate::new()
+            .with_transform(Transform::identity())
+            .with_attr(TINT_ATTR, Vec4::ONE);
 
         let start_particles = config.spawn_cap;
         let dist = ParticleDistributions::new(&config);
@@ -105,11 +127,12 @@ impl ParticleSystem {
             id,
             config,
             dist,
-            instances,
+            particles,
+            template,
             velocities: Vec::new(),
             spins: Vec::new(),
             lifespans: Vec::new(),
-            lifetimes: Vec::new()
+            lifetimes: Vec::new(),
         };
 
         system.spawn_particles(start_particles);
@@ -119,13 +142,13 @@ impl ParticleSystem {
 
     /// spawn as many particles as possible
     pub fn burst(&mut self) {
-        let count = self.config.total_particles - self.instances.transforms.len();
+        let count = self.config.total_particles - self.particles.instances.count();
         self.spawn_particles(count);
     }
 
     /// Get the number of remaining particles left - this only changes if is_one_shot is true
     pub fn remaining_particles(&self) -> usize {
-        self.instances.transforms.len()
+        self.particles.instances.count()
     }
 
     /// Set the emit center for this particle system. Only reset particles will use this if is_one_shot is false.
@@ -135,20 +158,18 @@ impl ParticleSystem {
 
     /// Update the particles in this particle system.
     pub fn update(&mut self, dt: f32) {
-        if self.instances.transforms.len() == 0 { return; }
-
         // spawn new particles if continuous
         if !self.config.is_one_shot {
-            let current_alive = self.instances.transforms.len();
+            let current_alive = self.particles.instances.count();
             let available_space = self.config.total_particles.saturating_sub(current_alive);
             let to_spawn = self.config.spawn_cap.min(available_space);
 
             self.spawn_particles(to_spawn);
         }
 
-        // update all existing particles
+        // update all particles
         let mut i = 0;
-        while i < self.lifetimes.len() {
+        while i < self.particles.instances.count() {
             self.lifetimes[i] += dt;
 
             if self.lifetimes[i] >= self.lifespans[i] {
@@ -156,10 +177,18 @@ impl ParticleSystem {
                 self.lifespans.swap_remove(i);
                 self.velocities.swap_remove(i);
                 self.spins.swap_remove(i);
-                self.instances.transforms.swap_remove(i);
+                
+                self.particles.instances.remove_instance(i);
             } else {
-                self.instances.transforms[i].translate(self.velocities[i] * dt);
-                self.instances.transforms[i].rotate_euler(0.0, 0.0, self.spins[i] * dt);
+                if let Some(mut instance) = self.particles.instances.get_instance_mut(i) {
+                    let transform = instance.get_transform_mut().unwrap();
+                    transform.translate(self.velocities[i] * dt);
+                    transform.rotate_euler(0.0, 0.0, self.spins[i] * dt);
+
+                    let tint = instance.get_attribute_mut::<Vec4>(TINT_ATTR).unwrap();
+                    let life_ratio = self.lifetimes[i] / self.lifespans[i];
+                    tint.w = (1.0 - life_ratio).clamp(0.0, 1.0);
+                }
                 i += 1;
             }
         }
@@ -167,7 +196,7 @@ impl ParticleSystem {
 
     /// render the particles to the current texture
     pub fn render(&mut self, renderer: &mut Renderer) {
-        renderer.draw(&mut self.instances);
+        renderer.draw(&mut self.particles);
     }
 
     /// spawn a batch of particles
@@ -189,11 +218,15 @@ impl ParticleSystem {
             let z_rotation = self.dist.rotation.sample(&mut rng);
             let init_rotation = Quat::from_euler(glam::EulerRot::YXZ, 0.0, 0.0, z_rotation);
 
-            self.instances.transforms.push(Transform::new(
-                self.config.emit_center, 
-                init_rotation, 
-                Vec3 { x: size, y: size, z: 1.0 }
-            ));
+            let transform = Transform::new(
+                self.config.emit_center,
+                init_rotation,
+                Vec3 { x: size, y: size, z: 0.0}
+            );
+
+            self.template.set_transform(transform);
+            self.particles.instances.add_instance(self.template.clone());
+
             self.velocities.push(velocity);
             self.lifetimes.push(0.0); // all particles are 'just born'
             self.lifespans.push(lifespan);

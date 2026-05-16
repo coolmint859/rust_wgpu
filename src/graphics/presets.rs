@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 use crate::graphics::{
-   bind_group::{BindGroupLayoutBuilder, LayoutBindType, LayoutEntry, LayoutVisibility}, material::{ColorComponent, Material, SamplerComponent, TextureComponent}, render_pipeline::RenderPipelineBuilder, shader::ShaderSpecBuilder, texture::SamplerBuilder, vertex::VertexAttribute
+   bind_group::{BindGroupLayoutBuilder, LayoutBindType, LayoutEntry, LayoutVisibility}, material::{ColorComponent, Material, SamplerComponent, TextureComponent}, render_pipeline::RenderPipelineBuilder, shader::ShaderSpecBuilder, texture::SamplerBuilder, vertex::{POSITION_LOC, TINT_LOC, TRANSFORM_LOC, UV_LOC}
 };
 
 /// preset material configurations
@@ -8,7 +8,7 @@ pub enum MaterialPreset {
     /// A material with a single color uniform
     ColoredSprite ([f32; 4]),
     /// A material with a single texture uniform (and sampler)
-    TexturedSprite (&'static str),
+    TexturedSprite (String),
 }
 
 impl MaterialPreset {
@@ -22,7 +22,7 @@ impl MaterialPreset {
             }
             MaterialPreset::TexturedSprite(path) => {
                 let mut material = Material::new("textured-sprite");
-                material.add_component(TextureComponent::new(label, path));
+                material.add_component(TextureComponent::new(label, &path));
                 material.add_component(SamplerComponent::new(TextureSampler::NearestClampToEdge));
 
                 material
@@ -39,7 +39,7 @@ pub enum ShaderSpecPreset {
 
 impl ShaderSpecPreset {
     pub fn get(self) -> ShaderSpecBuilder {
-        let global_layout = BindGroupLayoutBuilder::new()
+        let global_bg_layout = BindGroupLayoutBuilder::new()
             .with_label("global-uniforms")
             .with_entry(LayoutEntry { 
                 binding: 0, 
@@ -58,9 +58,12 @@ impl ShaderSpecPreset {
                     });
 
                 ShaderSpecBuilder::new(&self.path())
-                    .with_vertex_attribute(VertexAttribute::Position, 0)
-                    .with_instance_attribute(VertexAttribute::Transform, 1)
-                    .with_bg_layout(global_layout)
+                    .with_vertex_attribute(POSITION_LOC, wgpu::VertexFormat::Float32x3)
+                    .with_instance_attribute(TRANSFORM_LOC, wgpu::VertexFormat::Float32x4)
+                    .with_instance_attribute(TRANSFORM_LOC+1, wgpu::VertexFormat::Float32x4)
+                    .with_instance_attribute(TRANSFORM_LOC+2, wgpu::VertexFormat::Float32x4)
+                    .with_instance_attribute(TRANSFORM_LOC+3, wgpu::VertexFormat::Float32x4)
+                    .with_bg_layout(global_bg_layout)
                     .with_bg_layout(colored_sprite_layout)
             },
             ShaderSpecPreset::TexturedSprite => {
@@ -78,10 +81,14 @@ impl ShaderSpecPreset {
                     });
 
                 ShaderSpecBuilder::new(&self.path())
-                    .with_vertex_attribute(VertexAttribute::Position, 0)
-                    .with_vertex_attribute(VertexAttribute::UV, 1)
-                    .with_instance_attribute(VertexAttribute::Transform, 2)
-                    .with_bg_layout(global_layout)
+                    .with_vertex_attribute(POSITION_LOC, wgpu::VertexFormat::Float32x3)
+                    .with_vertex_attribute(UV_LOC, wgpu::VertexFormat::Float32x2)
+                    .with_instance_attribute(TRANSFORM_LOC, wgpu::VertexFormat::Float32x4)
+                    .with_instance_attribute(TRANSFORM_LOC+1, wgpu::VertexFormat::Float32x4)
+                    .with_instance_attribute(TRANSFORM_LOC+2, wgpu::VertexFormat::Float32x4)
+                    .with_instance_attribute(TRANSFORM_LOC+3, wgpu::VertexFormat::Float32x4)
+                    .with_instance_attribute(TINT_LOC, wgpu::VertexFormat::Float32x4)
+                    .with_bg_layout(global_bg_layout)
                     .with_bg_layout(textured_sprite_layout)
             }
         }

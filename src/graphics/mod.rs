@@ -17,3 +17,6 @@ pub mod entity;
 pub mod shape_factory;
 pub mod geometry;
 pub mod shader;
+pub mod animated;
+pub mod instance;
+pub mod data_utils;

@@ -2,7 +2,7 @@
 use std::cell::Cell;
 use glam::{Mat4, Quat, Vec2, Vec3};
 
-use crate::graphics::wpgu_context::{ResourceBinding, ResourceID, ResourceScope};
+use crate::graphics::{data_utils::DataView, wpgu_context::{ResourceBinding, ResourceID, ResourceScope, ResourceType}};
 
 use super::{
     bind_group::*, 
@@ -30,12 +30,15 @@ pub trait Camera {
 
     /// update the camera's view-projection matrix
     fn to_updated(&mut self) -> bool;
+
+    /// get the view space distance of a point in space from the camera
+    fn view_matrix(&self) -> Mat4;
 }
 
 /// Represents a 2D camera, using orthographic projection
 pub struct Camera2D {
     key: String,
-    transform: Transform,
+    transform: DataView<Transform>,
     zoom: f32, 
     aspect: f32,
     is_dirty: Cell<bool>,
@@ -47,7 +50,7 @@ impl Camera2D {
     pub fn new(key: &str) -> Self {
         Self {
             key: key.to_string(),
-            transform: Transform::default(),
+            transform: DataView::new(Transform::identity()),
             zoom: 1.0,
             aspect: 1.0,
             is_dirty: Cell::new(true),
@@ -117,7 +120,8 @@ impl Camera for Camera2D {
     fn get_id(&self) -> ResourceID {
         ResourceID { 
             key: self.key.clone(), 
-            scope: ResourceScope::Global 
+            scope: ResourceScope::Global,
+            r_type: ResourceType::Uniform,
         }
     }
 
@@ -155,7 +159,7 @@ impl Camera for Camera2D {
 
     /// update the camera's view-projection matrix
     fn to_updated(&mut self) -> bool {
-        if self.is_dirty.get() || self.transform.to_updated() {
+        if self.is_dirty.get() || self.transform.is_dirty() {
             let view_mat = self.transform.world_matrix().inverse();
 
             let half_width = self.aspect / self.zoom;
@@ -172,8 +176,14 @@ impl Camera for Camera2D {
 
             self.view_proj_mat = proj_mat * view_mat;
             self.is_dirty.set(false);
+            
+            self.transform.mark_clean();
             return true;
         }
         return false;
+    }
+
+    fn view_matrix(&self) -> Mat4 {
+        self.transform.world_matrix().inverse()
     }
 }
