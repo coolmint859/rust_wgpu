@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use std::{collections::HashMap, sync::Arc};
 
-use crate::graphics::{buffer::BufferBuilder, data_utils::{DirtyVec, DynHashMap, DynVector, PackingUtils}, vertex::{NORMAL_LOC, POSITION_LOC, UV_LOC, VertexComponent, VertexLayoutBuilder}, wpgu_context::{GeometryID, ResourceID, ResourceScope, ResourceType}};
+use crate::graphics::{buffer::BufferBuilder, data_utils::{DirtyVec, DynHashMap, DynVector, PackingUtils}, vertex::{NORMAL_LOC, POSITION_LOC, UV_LOC, VertexAttribute, VertexLayoutBuilder}, wpgu_context::{GeometryID, ResourceID, ResourceScope, ResourceType}};
 
 pub const POSITION_ATTR: &str = "position";
 pub const UV_ATTR: &str = "uv";
@@ -56,7 +56,7 @@ pub struct GeometrySignature {
 
 pub struct Geometry {
     data: Arc<GeometryData>,
-    components: Vec<Box<dyn VertexComponent>>,
+    attributes: Vec<Box<dyn VertexAttribute>>,
     packed_data: Option<Vec<u8>>,
 }
 
@@ -64,7 +64,7 @@ impl Geometry {
     pub fn new(data: Arc<GeometryData>) -> Self {
         Self {
             data,
-            components: Vec::new(),
+            attributes: Vec::new(),
             packed_data: None,
         }
     }
@@ -75,20 +75,20 @@ impl Geometry {
     }
 
     /// Add a vertex component to this geometry
-    pub fn with_component(mut self, component: impl VertexComponent + 'static) -> Self {
-        self.add_component(component);
+    pub fn with_attribute(mut self, attribute: impl VertexAttribute + 'static) -> Self {
+        self.add_attribute(attribute);
         self
     }
 
     /// Add a vertex component to this geometry
-    pub fn add_component(&mut self, component: impl VertexComponent + 'static) {
-        self.components.push(Box::new(component));
+    pub fn add_attribute(&mut self, attribute: impl VertexAttribute + 'static) {
+        self.attributes.push(Box::new(attribute));
         self.packed_data = None; // set to None to reset data packing
     }
 
     /// Get the vertex layout builder defined by this Geometry
     pub fn get_layout_builder(&self) -> VertexLayoutBuilder {
-        PackingUtils::layout_builder(wgpu::VertexStepMode::Vertex, &self.components)
+        PackingUtils::layout_builder(wgpu::VertexStepMode::Vertex, &self.attributes)
     }
 
     /// Get the ids to the buffers associated with this geometry
@@ -119,7 +119,7 @@ impl Geometry {
     pub fn get_signature(&self) -> GeometrySignature {
         let vertex_data = match &self.packed_data {
             Some(data) => data.to_vec(),
-            None => PackingUtils::pack(self.data.vertex_count, &self.data.attributes, &self.components)
+            None => PackingUtils::pack(self.data.vertex_count, &self.data.attributes, &self.attributes)
         };
 
         let index_data = match &self.data.indices {
@@ -143,14 +143,12 @@ impl Geometry {
     }
 }
 
-/// Represents a position attribute on a vertex
-/// 
-/// When applied to geometry, this acts as a marker to allow the underlying buffer to store position data
+/// A vertex attribute for positions
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]
-pub struct PositionComponent;
+pub struct PositionAttribute;
 
-impl VertexComponent for PositionComponent {
-    fn attribute(&self) -> &'static str { POSITION_ATTR }
+impl VertexAttribute for PositionAttribute {
+    fn name(&self) -> &'static str { POSITION_ATTR }
     fn location(&self) -> u32 { POSITION_LOC }
     fn format(&self) -> wgpu::VertexFormat { wgpu::VertexFormat::Float32x3 }
 
@@ -161,12 +159,12 @@ impl VertexComponent for PositionComponent {
     }
 }
 
-/// Represents a uv attribute (texture coordinates) on a vertex
+/// A vertex attribute for uv (texture) coordinates
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]
-pub struct UVComponent;
+pub struct UVAttribute;
 
-impl VertexComponent for UVComponent {
-    fn attribute(&self) -> &'static str { UV_ATTR }
+impl VertexAttribute for UVAttribute {
+    fn name(&self) -> &'static str { UV_ATTR }
     fn location(&self) -> u32 { UV_LOC }
     fn format(&self) -> wgpu::VertexFormat { wgpu::VertexFormat::Float32x2 }
 
@@ -177,12 +175,12 @@ impl VertexComponent for UVComponent {
     }
 }
 
-/// Represents a normal attribute on a vertex
+/// A vertex attribute for normals
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]
-pub struct NormalComponent;
+pub struct NormalAttribute;
 
-impl VertexComponent for NormalComponent {
-    fn attribute(&self) -> &'static str { NORMAL_ATTR }
+impl VertexAttribute for NormalAttribute {
+    fn name(&self) -> &'static str { NORMAL_ATTR }
     fn location(&self) -> u32 { NORMAL_LOC }
     fn format(&self) -> wgpu::VertexFormat { wgpu::VertexFormat::Float32x3 }
 

@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::graphics::{entity::{Entity, RenderInfo}, geometry::{Geometry, PositionComponent, UVComponent}, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, renderer::Renderer, shape_factory::Shape2D, transform::Transform};
+use crate::graphics::{entity::{Entity, RenderInfo}, geometry::{Geometry, PositionAttribute, UVAttribute}, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, renderer::Renderer, shape_factory::Shape2D, transform::Transform};
 
 pub struct AnimatedSprite  {
     entities: Vec<Entity>,
@@ -12,7 +12,7 @@ pub struct AnimatedSprite  {
 }
 
 impl AnimatedSprite {
-    pub fn new(images: Vec<String>, times: Vec<f32>) -> Self {
+    pub fn new(images: Vec<&str>, times: Vec<f32>) -> Self {
         assert!(images.len() == times.len());
 
         let geometry_data = Shape2D::new().square();
@@ -20,13 +20,13 @@ impl AnimatedSprite {
         let mut entities = Vec::new();
         for image in images {
             let geometry = Geometry::new(geometry_data.clone())
-                .with_component(PositionComponent)
-                .with_component(UVComponent);
+                .with_attribute(PositionAttribute)
+                .with_attribute(UVAttribute);
 
             let entity = Entity::new(
                 "animated-sprite",
                 geometry,
-                MaterialPreset::TexturedSprite(image.clone()).with_label("animated-sprite"),
+                MaterialPreset::TexturedSprite(image.to_string()).with_label("animated-sprite"),
                 Transform::identity(),
                 RenderInfo {
                     shader_path: ShaderSpecPreset::TexturedSprite.path(),

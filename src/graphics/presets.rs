@@ -31,7 +31,6 @@ impl MaterialPreset {
     }
 }
 
-
 pub enum ShaderSpecPreset {
     ColoredSprite,
     TexturedSprite

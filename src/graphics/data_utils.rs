@@ -2,7 +2,7 @@ use std::{any::Any, cell::Cell, collections::HashMap, ops::{Deref, DerefMut}};
 
 use glam::*;
 
-use crate::graphics::{vertex::{VertexComponent, VertexLayoutBuilder}, wpgu_context::ResourceUpdate};
+use crate::graphics::{vertex::{VertexAttribute, VertexLayoutBuilder}, wpgu_context::ResourceUpdate};
 
 /// Represents a type erased (dynamic) vector for use in heterogenous collections
 pub trait DynVector: Any {
@@ -194,11 +194,11 @@ impl PackingUtils {
     pub fn pack(
         count: usize, 
         attributes: &DynHashMap,
-        components: &[Box<dyn VertexComponent>],
+        components: &[Box<dyn VertexAttribute>],
     ) -> Vec<u8> {
         let mut packed = Vec::new();
 
-        let mut sorted_components: Vec<&Box<dyn VertexComponent>> = components.iter().collect();
+        let mut sorted_components: Vec<&Box<dyn VertexAttribute>> = components.iter().collect();
         sorted_components.sort_by_key(|c| c.location());
 
         for idx in 0..count {
@@ -218,7 +218,7 @@ impl PackingUtils {
     pub fn get_updated(
         count: usize,
         attributes: &DynHashMap,
-        components: &[Box<dyn VertexComponent>],
+        components: &[Box<dyn VertexAttribute>],
     ) -> Vec<ResourceUpdate> {
         let stride = PackingUtils::instance_stride(components);
         let mut updates: Vec<ResourceUpdate> = Vec::new();
@@ -252,7 +252,7 @@ impl PackingUtils {
     }
 
     /// Calculate the stride of an instance based on it's components
-    pub fn instance_stride(components: &[Box<dyn VertexComponent>]) -> usize {
+    pub fn instance_stride(components: &[Box<dyn VertexAttribute>]) -> usize {
         let stride: u64 = components.iter()
             .map(|c| c.format().size() * c.attr_count() as u64)
             .sum();
@@ -261,9 +261,9 @@ impl PackingUtils {
     }
 
     /// check if an instances attributes are dirty (changed this frame)
-    fn is_instance_dirty(idx: usize, attributes: &DynHashMap, components: &[Box<dyn VertexComponent>]) -> bool {
+    fn is_instance_dirty(idx: usize, attributes: &DynHashMap, components: &[Box<dyn VertexAttribute>]) -> bool {
         components.iter().any(|comp| {
-            attributes.is_dirty(comp.attribute(), idx)
+            attributes.is_dirty(comp.name(), idx)
         })
     }
 
@@ -280,10 +280,10 @@ impl PackingUtils {
     /// * components: **&Vec<Box<dyn VertexComponent>>** - the set of components belonging to the layout
     pub fn layout_builder(
         step_mode: wgpu::VertexStepMode, 
-        components: &[Box::<dyn VertexComponent>]
+        components: &[Box::<dyn VertexAttribute>]
     ) -> VertexLayoutBuilder {
         let mut layout = VertexLayoutBuilder::new(step_mode);
-        let mut sorted_components: Vec<&Box<dyn VertexComponent>> = components.iter().collect();
+        let mut sorted_components: Vec<&Box<dyn VertexAttribute>> = components.iter().collect();
         sorted_components.sort_by_key(|c| c.location());
 
         for component in sorted_components {

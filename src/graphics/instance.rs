@@ -1,53 +1,60 @@
 #![allow(dead_code)]
 use std::collections::HashMap;
 
-use crate::graphics::{buffer::BufferBuilder, data_utils::{DataView, DirtyVec, DynHashMap, DynVector, PackingUtils}, transform::Transform, vertex::{TINT_LOC, TRANSFORM_LOC, VertexComponent, VertexLayoutBuilder}, wpgu_context::ResourceUpdate};
+use crate::graphics::{buffer::BufferBuilder, data_utils::{DataView, DirtyVec, DynHashMap, DynVector, PackingUtils}, transform::Transform, vertex::{TINT_LOC, TRANSFORM_LOC, VertexAttribute, VertexLayoutBuilder}, wpgu_context::ResourceUpdate};
 
 pub const TRANSFORM_ATTR: &str = "transform";
 pub const TINT_ATTR: &str = "tint";
 
 /// A modifiable template for new entity instances
 pub struct InstanceTemplate {
-    pub values: HashMap<String, Box<dyn DynVector>>
+    pub data: HashMap<String, Box<dyn DynVector>>,
 }
 
 impl InstanceTemplate {
     pub fn new() -> Self {
-        Self { values: HashMap::new() }
+        Self { data: HashMap::new() }
     }
 
     /// Add a transform attribute to this instance
     pub fn with_transform(self, transform: Transform) -> Self {
-        self.with_attr::<Transform>(TRANSFORM_ATTR, transform)
+        self.with_attribute(TransformAttribute, transform)
     }
 
     /// Update the transform attribute for this instance
     pub fn set_transform(&mut self, transform: Transform) {
-        self.set_attr::<Transform>(TRANSFORM_ATTR, transform);
+        self.set_attribute(TransformAttribute, transform);
     }
 
-    /// Add an attribute to this instance
-    pub fn with_attr<T: Clone + Default + 'static>(mut self, name: &str, value: T) -> Self {
-        let vec = DirtyVec::from_vec(vec![value]);
-        self.values.insert(name.to_string(), Box::new(vec));
+    /// Add a component to this instance template
+    pub fn with_attribute<C, D>(mut self, component: C, data: D) -> Self 
+    where 
+        C: VertexAttribute + 'static, 
+        D: Clone + Default + 'static
+    {
+        self.set_attribute(component, data);
         self
     }
 
-    /// Update an attribute to this instance
-    pub fn set_attr<T: Clone + Default + 'static>(&mut self, name: &str, value: T) {
-        let vec = DirtyVec::from_vec(vec![value]);
-        self.values.insert(name.to_string(), Box::new(vec));
+    /// Set a known component's data on this instance template
+    pub fn set_attribute<C, D>(&mut self, component: C, data: D) 
+    where 
+        C: VertexAttribute + 'static, 
+        D: Clone + Default + 'static
+    {
+        let vec = DirtyVec::from_vec(vec![data]);
+        self.data.insert(component.name().to_string(), Box::new(vec));
     }
 }
 
 impl Clone for InstanceTemplate {
     fn clone(&self) -> Self {
         let mut new_values = HashMap::new();
-        for (name, attr) in &self.values {
+        for (name, attr) in &self.data {
             new_values.insert(name.clone(), attr.as_ref().clone_box());
         }
 
-        Self { values: new_values }
+        Self { data: new_values }
     }
 }
 
@@ -74,7 +81,7 @@ impl<'a> Instance<'a> {
 
     /// Get a reference to this instance's transform
     pub fn get_transform(&self) -> Option<&DataView<Transform>> {
-        self.get_attribute::<Transform>(TRANSFORM_ATTR)
+        self.get_attribute::<Transform>(TransformAttribute)
     }
 
     /// Get a reference to this instance's transform
@@ -82,13 +89,13 @@ impl<'a> Instance<'a> {
     /// ## Panics
     /// If the instance is missing a transform attribute
     pub fn transform(&self) -> &DataView<Transform> {
-        self.get_attribute::<Transform>(TRANSFORM_ATTR)
+        self.get_attribute::<Transform>(TransformAttribute)
             .expect("Expected the instance to have a transform attribute, but none was found.")
     }
 
     /// Get a reference to an attribute associated with this instance (if no attribute is found, None is returned) 
-    pub fn get_attribute<T: 'static>(&self, attr_name: &str) -> Option<&DataView<T>> {
-        let attributes = self.data.attributes.get_vec::<DirtyVec<T>>(attr_name)?;
+    pub fn get_attribute<T: 'static>(&self, attribute: impl VertexAttribute + 'static) -> Option<&DataView<T>> {
+        let attributes = self.data.attributes.get_vec::<DirtyVec<T>>(attribute.name())?;
         Some(&attributes.inner[self.index])
     }
 }
@@ -116,7 +123,7 @@ impl<'a> InstanceMut<'a> {
 
     /// Get a reference to this instance's transform
     pub fn get_transform(&self) -> Option<&DataView<Transform>> {
-        self.get_attribute::<Transform>(TRANSFORM_ATTR)
+        self.get_attribute::<Transform>(TransformAttribute)
     }
 
     /// Get a reference to this instance's transform
@@ -124,7 +131,7 @@ impl<'a> InstanceMut<'a> {
     /// ## Panics
     /// If the instance is missing a transform attribute
     pub fn transform(&self) -> &DataView<Transform> {
-        self.get_attribute::<Transform>(TRANSFORM_ATTR)
+        self.get_attribute::<Transform>(TransformAttribute)
             .expect("Expected the instance to have a transform attribute, but none was found.")
     }
 
@@ -133,24 +140,24 @@ impl<'a> InstanceMut<'a> {
     /// ## Panics
     /// If the instance is missing a transform attribute
     pub fn transform_mut(&mut self) -> &mut DataView<Transform> {
-        self.get_attribute_mut::<Transform>(TRANSFORM_ATTR)
+        self.get_attribute_mut::<Transform>(TransformAttribute)
             .expect("Expected the instance to have a transform attribute, but none was found.")
     }
 
     /// Get a mutable reference to this instance's transform
     pub fn get_transform_mut(&mut self) -> Option<&mut DataView<Transform>> {
-        self.get_attribute_mut::<Transform>(TRANSFORM_ATTR)
+        self.get_attribute_mut::<Transform>(TransformAttribute)
     }
 
     /// Get a reference to an attribute associated with this instance (if no attribute is found, None is returned) 
-    pub fn get_attribute<T: 'static>(&self, attr_name: &str) -> Option<&DataView<T>> {
-        let attributes = self.data.attributes.get_vec::<DirtyVec<T>>(attr_name)?;
+    pub fn get_attribute<T: 'static>(&self, attribute: impl VertexAttribute + 'static) -> Option<&DataView<T>> {
+        let attributes = self.data.attributes.get_vec::<DirtyVec<T>>(attribute.name())?;
         Some(&attributes.inner[self.index])
     }
 
     /// Get a reference to an attribute associated with this instance (if no attribute is found, None is returned) 
-    pub fn get_attribute_mut<T: 'static>(&mut self, attr_name: &str) -> Option<&mut DataView<T>> {
-        let attributes = self.data.attributes.get_vec_mut::<DirtyVec<T>>(attr_name)?;
+    pub fn get_attribute_mut<T: 'static>(&mut self, attribute: impl VertexAttribute + 'static) -> Option<&mut DataView<T>> {
+        let attributes = self.data.attributes.get_vec_mut::<DirtyVec<T>>(attribute.name())?;
         Some(&mut attributes.inner[self.index])
     }
 }
@@ -174,10 +181,15 @@ impl InstanceData {
         }
     }
 
-    /// add attribute data to this instance group
+    /// Add attribute data to this instance group
     pub fn with_attr(mut self, key: &str, data: impl DynVector) -> Self {
-        self.attributes.map.insert(key.to_string(), Box::new(data));
+        self.add_attr(key, data);
         self
+    }
+
+    /// Add attribute data to this instance group
+    pub fn add_attr(&mut self, key: &str, data: impl DynVector) {
+        self.attributes.map.insert(key.to_string(), Box::new(data));
     }
 }
 
@@ -185,15 +197,18 @@ impl InstanceData {
 pub struct InstanceGroup {
     label: String,
     instances: InstanceData,
-    components: Vec<Box<dyn VertexComponent>>,
+    attributes: Vec<Box<dyn VertexAttribute>>,
 }
 
 impl InstanceGroup {
-    pub fn new(instances: InstanceData) -> Self {
+    /// Create a new instance group
+    /// 
+    /// Note: It is expected that the group will be initialized with components with at least init_count amount of data
+    pub fn new(init_count: usize, capacity: usize) -> Self {
         Self {
             label: "instances".to_string(),
-            instances, 
-            components: Vec::new() 
+            instances: InstanceData::new(init_count, capacity),
+            attributes: Vec::new()
         }
     }
 
@@ -213,6 +228,27 @@ impl InstanceGroup {
         self.instances.count
     }
 
+    /// Add an attribute-component pair with data to the instance group
+    pub fn with_attribute<V, T>(mut self, attribute: V, data: Vec<T>) -> Self
+    where 
+        V: VertexAttribute + 'static,
+        T: Clone + Default + 'static,
+    {
+        self.add_attribute(attribute, data);
+        self
+    }
+
+    /// Add an attribute-component pair with data to the instance group
+    pub fn add_attribute<V, T>(&mut self, attribute: V, data: Vec<T>)
+    where 
+        V: VertexAttribute + 'static,
+        T: Clone + Default + 'static,
+    {
+        let dirty_vec = DirtyVec::<T>::from_vec(data);
+        self.instances.add_attr(attribute.name(), dirty_vec);
+        self.attributes.push(Box::new(attribute));
+    }
+
     /// Get an instance in the group at the specfied index, if exists.
     pub fn get_instance(&self, index: usize) -> Option<Instance<'_>> {
         if index >= self.instances.count { return None }
@@ -230,7 +266,7 @@ impl InstanceGroup {
     /// Add an instance to the instance group from an instance template
     pub fn add_instance(&mut self, mut instance: InstanceTemplate) {
         for (name, attr) in &mut self.instances.attributes.map {
-            if let Some(val) = instance.values.remove(name.as_str()) {
+            if let Some(val) = instance.data.remove(name.as_str()) {
                 attr.as_mut().append_from(val.as_ref());
             } else {
                 attr.push_default();
@@ -253,36 +289,29 @@ impl InstanceGroup {
     }
 
     /// Get a reference to the attribute data associated with the provided attribute name, if exists
-    pub fn get_attribute<T: 'static>(&self, attr_name: &str) -> Option<&Vec<DataView<T>>> {
-        let attributes = self.instances.attributes.get_vec::<DirtyVec<T>>(attr_name)?;
+    pub fn get_attribute<V, T: 'static>(&self, attribute: V) -> Option<&Vec<DataView<T>>> 
+    where V: VertexAttribute + 'static
+    {
+        let attributes = self.instances.attributes.get_vec::<DirtyVec<T>>(attribute.name())?;
         Some(&attributes.inner)
     }
 
     /// Get a mutable reference to the attribute data associated with the provided attribute name, if exists
-    pub fn get_attribute_mut<T: 'static>(&mut self, attr_name: &str) -> Option<&mut Vec<DataView<T>>> {
-        self.instances.attributes.get_vec_mut(attr_name)
-    }
-
-    /// Add a vertex component to this geometry
-    pub fn with_component(mut self, component: impl VertexComponent + 'static) -> Self {
-        self.add_component(component);
-        self
-    }
-
-    /// Add a vertex component to this geometry
-    pub fn add_component(&mut self, component: impl VertexComponent + 'static) {
-        self.components.push(Box::new(component));
+    pub fn get_attribute_mut<V, T: 'static>(&mut self, attribute: V) -> Option<&mut Vec<DataView<T>>> 
+    where V: VertexAttribute + 'static
+    {
+        self.instances.attributes.get_vec_mut(attribute.name())
     }
 
     /// Get the vertex layout builder defined by this Geometry
     pub fn get_layout_builder(&self) -> VertexLayoutBuilder {
-        PackingUtils::layout_builder(wgpu::VertexStepMode::Instance, &self.components)
+        PackingUtils::layout_builder(wgpu::VertexStepMode::Instance, &self.attributes)
     }
 
     /// Get the builder for the instance buffer used by this instance group.
     pub fn get_buffer_builder(&self) -> BufferBuilder {
-        let instance_bytes = PackingUtils::pack(self.instances.count, &self.instances.attributes, &self.components);
-        let buffer_cap = self.instances.capacity * PackingUtils::instance_stride(&self.components);
+        let instance_bytes = PackingUtils::pack(self.instances.count, &self.instances.attributes, &self.attributes);
+        let buffer_cap = self.instances.capacity * PackingUtils::instance_stride(&self.attributes);
         
         BufferBuilder::as_vertex()
             .with_label(&self.label)
@@ -292,15 +321,16 @@ impl InstanceGroup {
 
     /// Get all updates on the instance data in a vector
     pub fn get_updated(&self) -> Vec<ResourceUpdate> {
-        PackingUtils::get_updated(self.instances.count, &self.instances.attributes, &self.components)
+        PackingUtils::get_updated(self.instances.count, &self.instances.attributes, &self.attributes)
     }
 }
 
-/// Instance component representing the Transform attribute
-pub struct TransformComponent;
+/// Instance attribute for transforms (world matrix)
+#[derive(Clone, Hash, PartialEq, Eq, Debug)]
+pub struct TransformAttribute;
 
-impl VertexComponent for TransformComponent {
-    fn attribute(&self) -> &'static str { TRANSFORM_ATTR }
+impl VertexAttribute for TransformAttribute {
+    fn name(&self) -> &'static str { TRANSFORM_ATTR }
     fn location(&self) -> u32 { TRANSFORM_LOC }
     fn format(&self) -> wgpu::VertexFormat { wgpu::VertexFormat::Float32x4 }
     fn attr_count(&self) -> u32 { 4 }
@@ -313,11 +343,12 @@ impl VertexComponent for TransformComponent {
     }
 }
 
-/// Instance component representing the tint attribute
-pub struct TintComponent;
+/// Instance attribute for tints
+#[derive(Clone, Hash, PartialEq, Eq, Debug)]
+pub struct TintAttribute;
 
-impl VertexComponent for TintComponent {
-    fn attribute(&self) -> &'static str { TINT_ATTR }
+impl VertexAttribute for TintAttribute {
+    fn name(&self) -> &'static str { TINT_ATTR }
     fn location(&self) -> u32 { TINT_LOC }
     fn format(&self) -> wgpu::VertexFormat { wgpu::VertexFormat::Float32x4 }
 

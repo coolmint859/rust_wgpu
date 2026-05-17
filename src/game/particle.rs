@@ -5,9 +5,7 @@ use glam::{Quat, Vec3, Vec4};
 use rand::random;
 use rand_distr::{Distribution, Normal};
 
-use crate::graphics::{
-    data_utils::DirtyVec, entity::{Entity, RenderInfo}, geometry::{Geometry, PositionComponent, UVComponent}, instance::{InstanceData, InstanceGroup, InstanceTemplate, TINT_ATTR, TRANSFORM_ATTR, TintComponent, TransformComponent}, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, renderer::Renderer, shape_factory::Shape2D, transform::Transform
-};
+use crate::graphics::{entity::{Entity, RenderInfo}, geometry::{Geometry, PositionAttribute, UVAttribute}, instance::{InstanceGroup, InstanceTemplate, TintAttribute, TransformAttribute}, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, renderer::Renderer, shape_factory::Shape2D, transform::Transform};
 
 static PARTICLE_SYS_COUNTER: AtomicU32 = AtomicU32::new(0);
 
@@ -91,19 +89,13 @@ impl ParticleSystem {
         
         let geometry_data = Shape2D::new().square();
         let geometry = Geometry::new(geometry_data.clone())
-            .with_component(PositionComponent)
-            .with_component(UVComponent);
+            .with_attribute(PositionAttribute)
+            .with_attribute(UVAttribute);
 
-        let transforms: DirtyVec<Transform> = DirtyVec::from_vec(Vec::with_capacity(config.total_particles));
-        let tints: DirtyVec<glam::Vec4> = DirtyVec::from_vec(Vec::with_capacity(config.total_particles));
-
-        let instance_data= InstanceData::new(0, config.total_particles)
-            .with_attr(TRANSFORM_ATTR, transforms)
-            .with_attr(TINT_ATTR, tints);
-
-        let instance_group = InstanceGroup::new(instance_data)
-            .with_component(TransformComponent)
-            .with_component(TintComponent);
+        let instance_group = InstanceGroup::new(0, config.total_particles)
+            .with_label("particles")
+            .with_attribute(TransformAttribute, Vec::<Transform>::with_capacity(config.total_particles))
+            .with_attribute(TintAttribute, Vec::<Vec4>::with_capacity(config.total_particles));
 
         let particles = Entity::from_group(
             "particles",
@@ -118,7 +110,7 @@ impl ParticleSystem {
 
         let template = InstanceTemplate::new()
             .with_transform(Transform::identity())
-            .with_attr(TINT_ATTR, Vec4::ONE);
+            .with_attribute(TintAttribute, Vec4::ONE);
 
         let start_particles = config.spawn_cap;
         let dist = ParticleDistributions::new(&config);
@@ -185,7 +177,7 @@ impl ParticleSystem {
                     transform.translate(self.velocities[i] * dt);
                     transform.rotate_euler(0.0, 0.0, self.spins[i] * dt);
 
-                    let tint = instance.get_attribute_mut::<Vec4>(TINT_ATTR).unwrap();
+                    let tint = instance.get_attribute_mut::<Vec4>(TintAttribute).unwrap();
                     let life_ratio = self.lifetimes[i] / self.lifespans[i];
                     tint.w = (1.0 - life_ratio).clamp(0.0, 1.0);
                 }

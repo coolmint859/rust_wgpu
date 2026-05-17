@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use crate::graphics::{data_utils::DirtyVec, geometry::Geometry, instance::{Instance, InstanceData, InstanceGroup, InstanceMut, TINT_ATTR, TRANSFORM_ATTR, TintComponent, TransformComponent}, material::{Material, UniformBuilder}, render_pipeline::RenderPipelineBuilder, transform::Transform, wpgu_context::{GeometryID, ResourceBinding, ResourceID, ResourceScope, ResourceType, ResourceUpdate}};
+use crate::graphics::{geometry::Geometry, instance::{Instance, InstanceGroup, InstanceMut, TintAttribute, TransformAttribute}, material::{Material, UniformBuilder}, render_pipeline::RenderPipelineBuilder, transform::Transform, wpgu_context::{GeometryID, ResourceBinding, ResourceID, ResourceScope, ResourceType, ResourceUpdate}};
 
 static ENTITY_COUNTER: AtomicU32 = AtomicU32::new(0);
 
@@ -24,15 +24,10 @@ impl Entity {
     pub fn new(label: &str, geometry: Geometry, material: Material, transform: Transform, render_info: RenderInfo) -> Self {
         let id = ENTITY_COUNTER.fetch_add(1, Ordering::SeqCst);
 
-        let transform = DirtyVec::from_vec(vec![transform]);
-        let tint: DirtyVec<glam::Vec4> = DirtyVec::from_vec(vec![glam::Vec4::ONE]);
-        let data = InstanceData::new(1, 1)
-            .with_attr(TRANSFORM_ATTR, transform)
-            .with_attr(TINT_ATTR, tint);
-
-        let instances = InstanceGroup::new(data)
-            .with_component(TransformComponent)
-            .with_component(TintComponent);
+        let instances = InstanceGroup::new(1, 1)
+            .with_label(label)
+            .with_attribute(TransformAttribute, vec![transform])
+            .with_attribute(TintAttribute, vec![glam::Vec4::ONE]);
 
         Self { 
             id, 
@@ -47,19 +42,18 @@ impl Entity {
     /// Create an entity with multiple instances (just transforms)
     pub fn new_instanced(label: &str, geometry: Geometry, material: Material, instances: Vec<Transform>, render_info: RenderInfo) -> Self {
         let id = ENTITY_COUNTER.fetch_add(1, Ordering::SeqCst);
-        let active_instances = instances.len();
-        let total_instances = instances.capacity();
+        let capacity = instances.capacity();
         
-        let transforms = DirtyVec::from_vec(instances);
-        let data = InstanceData::new(active_instances, total_instances)
-            .with_attr(TRANSFORM_ATTR, transforms);
+        let instance_group = InstanceGroup::new(instances.len(), capacity)
+            .with_label(label)
+            .with_attribute(TransformAttribute, instances);
         
         Self { 
             id, 
             label: label.to_string(),
             geometry, 
             material, 
-            instances: InstanceGroup::new(data).with_component(TransformComponent),
+            instances: instance_group,
             render_info 
         }
     }

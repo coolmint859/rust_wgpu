@@ -5,7 +5,7 @@ const PI: f32 = 3.1415;
 use glam::Vec3;
 
 use crate::{game::particle::{ParticleConfig, ParticleSystem, Variance}, graphics::{
-    camera::{Camera, Camera2D}, entity::{Entity, RenderInfo}, geometry::{Geometry, PositionComponent, UVComponent}, init_state::StateInit, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, renderer::Renderer, shape_factory::Shape2D, traits::Driver, transform::Transform
+    camera::{Camera, Camera2D}, entity::{Entity, RenderInfo}, geometry::{Geometry, PositionAttribute, UVAttribute}, init_state::StateInit, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, renderer::Renderer, shape_factory::Shape2D, traits::Driver, transform::Transform
 }};
 
 pub struct Game {
@@ -19,8 +19,8 @@ impl Game {
         let camera = Camera2D::new("camera-2d");
         
         let geometry = Geometry::new(Shape2D::new().square())
-            .with_component(PositionComponent)
-            .with_component(UVComponent);
+            .with_attribute(PositionAttribute)
+            .with_attribute(UVAttribute);
 
         let blue_devils = Entity::new(
             "blue-devils",
@@ -36,7 +36,7 @@ impl Game {
         let particles = ParticleSystem::new(ParticleConfig {
             total_particles: 5000,
             spawn_cap: 500,
-            emit_center: Vec3 { x: 0.4, y: 0.5, z: 0.0 },
+            emit_center: Vec3 { x: 0.0, y: 0.0, z: 0.0 },
             size: Variance { mean: 0.02, std_dev: 0.001 },
             speed: Variance { mean: 0.5, std_dev: 0.2 },
             lifespan: Variance { mean: 2.00, std_dev: 0.2 },

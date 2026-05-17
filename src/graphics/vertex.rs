@@ -21,9 +21,9 @@ pub const TRANSFORM_LOC: u32 = 8;
 pub const TINT_LOC: u32 = 12;
 
 /// represents attributes that can be packed into a vertex/instance buffer
-pub trait VertexComponent {
+pub trait VertexAttribute {
     /// the name of the attribute the component represents
-    fn attribute(&self) -> &'static str;
+    fn name(&self) -> &'static str;
 
     /// the attribute location in the shader
     fn location(&self) -> u32;
