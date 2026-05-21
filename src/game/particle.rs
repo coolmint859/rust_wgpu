@@ -5,7 +5,7 @@ use glam::{Quat, Vec3, Vec4};
 use rand::random;
 use rand_distr::{Distribution, Normal};
 
-use crate::graphics::{entity::{Entity, RenderInfo}, geometry::{Geometry, PositionAttribute, UVAttribute}, instance::{InstanceGroup, InstanceTemplate, TintAttribute, TransformAttribute}, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, renderer::Renderer, shape_factory::Shape2D, transform::Transform};
+use crate::graphics::{entity::{Entity, RenderInfo}, geometry::{Geometry, PositionAttribute, UVAttribute}, instance::{InstanceGroup, InstanceTemplate, TintAttribute, TransformAttribute}, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, renderer::Renderer, shape_factory::Shape2D, traits::AnimationController, transform::Transform};
 
 static PARTICLE_SYS_COUNTER: AtomicU32 = AtomicU32::new(0);
 
@@ -60,10 +60,31 @@ impl ParticleDistributions {
     }
 }
 
-/// A 2D particle system using instanced rendering.
+/// Contains the states of a particle system
+struct ParticleStates {
+    pub velocities: Vec<Vec3>,
+    pub spins: Vec<f32>,
+    pub lifetimes: Vec<f32>,
+    pub lifespans: Vec<f32>,
+}
+
+impl ParticleStates {
+    pub fn new() -> Self {
+        Self {
+            velocities: Vec::new(),
+            spins: Vec::new(),
+            lifespans: Vec::new(),
+            lifetimes: Vec::new(),
+        }
+    }
+}
+
+/// A 2D particle emitter using instanced rendering.
+/// 
+/// Emits particles uniformly in all directions from a center point.
 /// 
 /// Particle behavior is determined by normal distributions
-pub struct ParticleSystem {
+pub struct ParticleEmitter2D {
     id: u32,
     /// the configuration of the particle system
     config: ParticleConfig,
@@ -73,17 +94,11 @@ pub struct ParticleSystem {
     particles: Entity,
     /// instance template for creating individual particles
     template: InstanceTemplate,
-    /// particle velocities
-    velocities: Vec<Vec3>,
-    /// particle spins
-    spins: Vec<f32>,
-    /// particle lifetimes
-    lifetimes: Vec<f32>,
-    /// particle lifespans
-    lifespans: Vec<f32>,
+    /// particle velocities, spins, lifetimes, etc...
+    states: ParticleStates
 }
 
-impl ParticleSystem {
+impl ParticleEmitter2D {
     pub fn new(config: ParticleConfig) -> Self {
         let id = PARTICLE_SYS_COUNTER.fetch_add(1, Ordering::SeqCst);
         
@@ -109,7 +124,7 @@ impl ParticleSystem {
         );
 
         let template = InstanceTemplate::new()
-            .with_transform(Transform::identity())
+            .with_transform(Transform::default())
             .with_attribute(TintAttribute, Vec4::ONE);
 
         let start_particles = config.spawn_cap;
@@ -121,10 +136,7 @@ impl ParticleSystem {
             dist,
             particles,
             template,
-            velocities: Vec::new(),
-            spins: Vec::new(),
-            lifespans: Vec::new(),
-            lifetimes: Vec::new(),
+            states: ParticleStates::new(),
         };
 
         system.spawn_particles(start_particles);
@@ -146,49 +158,6 @@ impl ParticleSystem {
     /// Set the emit center for this particle system. Only reset particles will use this if is_one_shot is false.
     pub fn set_emit_center(&mut self, center: Vec3) {
         self.config.emit_center = center;
-    }
-
-    /// Update the particles in this particle system.
-    pub fn update(&mut self, dt: f32) {
-        // spawn new particles if continuous
-        if !self.config.is_one_shot {
-            let current_alive = self.particles.instances.count();
-            let available_space = self.config.total_particles.saturating_sub(current_alive);
-            let to_spawn = self.config.spawn_cap.min(available_space);
-
-            self.spawn_particles(to_spawn);
-        }
-
-        // update all particles
-        let mut i = 0;
-        while i < self.particles.instances.count() {
-            self.lifetimes[i] += dt;
-
-            if self.lifetimes[i] >= self.lifespans[i] {
-                self.lifetimes.swap_remove(i);
-                self.lifespans.swap_remove(i);
-                self.velocities.swap_remove(i);
-                self.spins.swap_remove(i);
-                
-                self.particles.instances.remove_instance(i);
-            } else {
-                if let Some(mut instance) = self.particles.instances.get_instance_mut(i) {
-                    let transform = instance.get_transform_mut().unwrap();
-                    transform.translate(self.velocities[i] * dt);
-                    transform.rotate_euler(0.0, 0.0, self.spins[i] * dt);
-
-                    let tint = instance.get_attribute_mut::<Vec4>(TintAttribute).unwrap();
-                    let life_ratio = self.lifetimes[i] / self.lifespans[i];
-                    tint.w = (1.0 - life_ratio).clamp(0.0, 1.0);
-                }
-                i += 1;
-            }
-        }
-    }
-
-    /// render the particles to the current texture
-    pub fn render(&mut self, renderer: &mut Renderer) {
-        renderer.draw(&mut self.particles);
     }
 
     /// spawn a batch of particles
@@ -219,10 +188,54 @@ impl ParticleSystem {
             self.template.set_transform(transform);
             self.particles.instances.add_instance(self.template.clone());
 
-            self.velocities.push(velocity);
-            self.lifetimes.push(0.0); // all particles are 'just born'
-            self.lifespans.push(lifespan);
-            self.spins.push(spin);
+            self.states.velocities.push(velocity);
+            self.states.lifetimes.push(0.0); // all particles are 'just born'
+            self.states.lifespans.push(lifespan);
+            self.states.spins.push(spin);
         }
+    }
+}
+
+impl AnimationController for ParticleEmitter2D {
+    /// Update the particles in this particle system.
+    fn update(&mut self, dt: f32) {
+        // spawn new particles if continuous
+        if !self.config.is_one_shot {
+            let current_alive = self.particles.instances.count();
+            let available_space = self.config.total_particles.saturating_sub(current_alive);
+            let to_spawn = self.config.spawn_cap.min(available_space);
+
+            self.spawn_particles(to_spawn);
+        }
+
+        // update all particles
+        let mut i = 0;
+        while i < self.particles.instances.count() {
+            self.states.lifetimes[i] += dt;
+
+            if self.states.lifetimes[i] >= self.states.lifespans[i] {
+                self.states.lifetimes.swap_remove(i);
+                self.states.lifespans.swap_remove(i);
+                self.states.velocities.swap_remove(i);
+                self.states.spins.swap_remove(i);
+                
+                self.particles.instances.remove_instance(i);
+            } else {
+                if let Some(mut instance) = self.particles.instances.get_instance_mut(i) {
+                    let transform = instance.get_transform_mut().unwrap();
+                    transform.translate(self.states.velocities[i] * dt);
+                    transform.rotate_euler(0.0, 0.0, self.states.spins[i] * dt);
+
+                    let tint = instance.get_attribute_mut::<Vec4>(TintAttribute).unwrap();
+                    let life_ratio = self.states.lifetimes[i] / self.states.lifespans[i];
+                    tint.w = (1.0 - life_ratio).clamp(0.0, 1.0);
+                }
+                i += 1;
+            }
+        }
+    }
+
+    fn render(&mut self, renderer: &mut Renderer) {
+        renderer.draw(&mut self.particles);
     }
 }

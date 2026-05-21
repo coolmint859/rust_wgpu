@@ -29,11 +29,6 @@ impl Transform {
         Self { id, position, rotation, scale, world_mat }
     }
 
-    /// Create a transform that represents the identity matrix, facing the -z axis at the origin with scale 1
-    pub fn identity() -> Self {
-        Transform::new(Vec3::ZERO, Quat::IDENTITY, Vec3::ONE)
-    }
-
     /// Set the postition of the transform relative to the world axis
     pub fn with_position(mut self, position: Vec3) -> Self {
         self.position = position;
@@ -148,6 +143,6 @@ impl Transform {
 
 impl Default for Transform {
     fn default() -> Self {
-        Transform::identity()
+        Transform::new(Vec3::ZERO, Quat::IDENTITY, Vec3::ONE)
     }
 }

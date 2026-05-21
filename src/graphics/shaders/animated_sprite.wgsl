@@ -11,6 +11,7 @@ var<uniform> globals: GlobalUniforms;
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
+    @location(1) uv: vec2<f32>,
 };
 
 struct InstanceInput {
@@ -39,7 +40,7 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
 
     var out: VertexOutput;
     out.clip_position = globals.view_proj * model_matrix * vec4<f32>(model.position, 1.0);
-    out.tex_coords = model.tex_coords;
+    out.tex_coords = (model.uv * instance.bounds.zw) + instance.bounds.xy;
     out.tint = instance.tint;
     return out;
 }

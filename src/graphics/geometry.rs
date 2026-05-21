@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use std::{collections::HashMap, sync::Arc};
 
-use crate::graphics::{buffer::BufferBuilder, data_utils::{DirtyVec, DynHashMap, DynVector, PackingUtils}, vertex::{NORMAL_LOC, POSITION_LOC, UV_LOC, VertexAttribute, VertexLayoutBuilder}, wpgu_context::{GeometryID, ResourceID, ResourceScope, ResourceType}};
+use crate::graphics::{buffer::BufferBuilder, data_utils::{DirtyVec, DynHashMap, DynDirtyVec, PackingUtils}, vertex::{NORMAL_LOC, POSITION_LOC, UV_LOC, VertexAttribute, VertexLayoutBuilder}, wpgu_context::{GeometryID, ResourceID, ResourceScope, ResourceType}};
 
 pub const POSITION_ATTR: &str = "position";
 pub const UV_ATTR: &str = "uv";
@@ -35,7 +35,7 @@ impl GeometryData {
     }
 
     /// add attribute data to this geometry
-    pub fn with_attr(mut self, key: &str, data: impl DynVector) -> Self {
+    pub fn with_attr(mut self, key: &str, data: impl DynDirtyVec) -> Self {
         self.attributes.map.insert(key.to_string(), Box::new(data));
         self
     }

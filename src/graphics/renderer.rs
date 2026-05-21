@@ -184,7 +184,7 @@ impl Renderer {
             bindings.push(binding);
         }
 
-        self.context.process_bind_group(&&entity.material_id(), &entity.material.get_layout_builder(), bindings);
+        self.context.process_bind_group(&entity.material_id(), &entity.material.get_layout_builder(), bindings);
 
         for (id, update) in entity.uniform_updates() {
             self.context.update_resource(&id, update);

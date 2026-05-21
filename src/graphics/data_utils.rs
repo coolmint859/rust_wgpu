@@ -5,28 +5,30 @@ use glam::*;
 use crate::graphics::{vertex::{VertexAttribute, VertexLayoutBuilder}, wpgu_context::ResourceUpdate};
 
 /// Represents a type erased (dynamic) vector for use in heterogenous collections
-pub trait DynVector: Any {
-    /// Convert the data store into it's Any type
-    fn as_any_ref<'a>(&'a self) -> &'a dyn Any;
-    /// Convert the data store into it's Any type as mutable
-    fn as_any_mut<'a>(&'a mut self) -> &'a mut dyn Any;
+pub trait DynDirtyVec: Any {
     /// Check if data at the specified index has changed
     fn is_dirty(&self, idx: usize) -> bool;
     /// Mark the data at the specified index as clean
     fn mark_clean(&self, idx: usize);
     /// Mark the data at the specified index as dirty
     fn mark_dirty(&self, idx: usize);
+
     /// Push a default value into the internal vector
     fn push_default(&mut self);
     /// Swap the last element in the vector with the one at the index, and then remove the last element.
     fn swap_remove(&mut self, idx: usize);
     /// Clone the values of the vector into a new one.
-    fn clone_box(&self) -> Box<dyn DynVector>;
+    fn clone_box(&self) -> Box<dyn DynDirtyVec>;
     /// Append data from another vector into this one.
-    fn append_from(&mut self, other: &dyn DynVector);
+    fn append_from(&mut self, other: &dyn DynDirtyVec);
+
+    /// Convert the data store into it's Any type
+    fn as_any_ref<'a>(&'a self) -> &'a dyn Any;
+    /// Convert the data store into it's Any type as mutable
+    fn as_any_mut<'a>(&'a mut self) -> &'a mut dyn Any;
 }
 
-impl dyn DynVector {
+impl dyn DynDirtyVec {
     /// Downcast this dynamic vector into a reference of the concrete vector type
     pub fn downcast_ref<V: 'static>(&self) -> Option<&V> {
         self.as_any_ref().downcast_ref::<V>()
@@ -40,7 +42,7 @@ impl dyn DynVector {
 
 /// A hashmap that stores DynVector instances keyed by a String
 pub struct DynHashMap {
-    pub map: HashMap<String, Box<dyn DynVector>>
+    pub map: HashMap<String, Box<dyn DynDirtyVec>>
 }
 
 impl DynHashMap {
@@ -101,6 +103,12 @@ impl<T: Clone> DataView<T> {
     pub fn mark_dirty(&self) {
         self.is_dirty.set(true);
     }
+
+    /// Set the data held in the view, marking it dirty
+    pub fn set(&mut self, data: T) {
+        self.data = data;
+        self.is_dirty.set(true);
+    }
 }
 
 impl<T: Clone> Clone for DataView<T> {
@@ -126,10 +134,7 @@ pub struct DirtyVec<T> {
     pub inner: Vec<DataView<T>>
 }
 
-impl<T: Default + Clone + 'static> DynVector for DirtyVec<T> {
-    fn as_any_ref<'a>(&'a self) -> &'a dyn Any { self }
-    fn as_any_mut<'a>(&'a mut self) -> &'a mut dyn Any { self }
-
+impl<T: Default + Clone + 'static> DynDirtyVec for DirtyVec<T> {
     fn is_dirty(&self, idx: usize) -> bool {
         self.inner.get(idx).map_or(false, |value| value.is_dirty())
     }
@@ -154,13 +159,13 @@ impl<T: Default + Clone + 'static> DynVector for DirtyVec<T> {
         self.inner.swap_remove(idx);
     }
 
-    fn clone_box(&self) -> Box<dyn DynVector> {
+    fn clone_box(&self) -> Box<dyn DynDirtyVec> {
         Box::new(Self {
             inner: self.inner.iter().map(|dv| dv.clone()).collect()
         })
     }
 
-    fn append_from(&mut self, other: &dyn DynVector) {
+    fn append_from(&mut self, other: &dyn DynDirtyVec) {
         if let Some(other_vec) = other.as_any_ref().downcast_ref::<DirtyVec<T>>() {
             for source in other_vec.inner.iter() {
                 self.inner.push(source.clone());
@@ -169,6 +174,9 @@ impl<T: Default + Clone + 'static> DynVector for DirtyVec<T> {
             panic!("Expected 'other' to contain values with the same type as 'self'");
         }
     }
+
+    fn as_any_ref<'a>(&'a self) -> &'a dyn Any { self }
+    fn as_any_mut<'a>(&'a mut self) -> &'a mut dyn Any { self }
 }
 
 impl<T: Default + Clone + 'static> DirtyVec<T> {

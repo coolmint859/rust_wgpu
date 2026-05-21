@@ -1,14 +1,15 @@
 #![allow(dead_code)]
 use std::collections::HashMap;
 
-use crate::graphics::{buffer::BufferBuilder, data_utils::{DataView, DirtyVec, DynHashMap, DynVector, PackingUtils}, transform::Transform, vertex::{TINT_LOC, TRANSFORM_LOC, VertexAttribute, VertexLayoutBuilder}, wpgu_context::ResourceUpdate};
+use crate::graphics::{buffer::BufferBuilder, data_utils::{DataView, DirtyVec, DynDirtyVec, DynHashMap, PackingUtils}, transform::Transform, vertex::{TINT_LOC, TRANSFORM_LOC, UV_BOUNDS_LOC, VertexAttribute, VertexLayoutBuilder}, wpgu_context::ResourceUpdate};
 
 pub const TRANSFORM_ATTR: &str = "transform";
 pub const TINT_ATTR: &str = "tint";
+pub const UV_BOUNDS_ATTR: &str = "uv_bounds";
 
 /// A modifiable template for new entity instances
 pub struct InstanceTemplate {
-    pub data: HashMap<String, Box<dyn DynVector>>,
+    pub data: HashMap<String, Box<dyn DynDirtyVec>>,
 }
 
 impl InstanceTemplate {
@@ -27,23 +28,23 @@ impl InstanceTemplate {
     }
 
     /// Add a component to this instance template
-    pub fn with_attribute<C, D>(mut self, component: C, data: D) -> Self 
+    pub fn with_attribute<V, D>(mut self, attributes: V, data: D) -> Self 
     where 
-        C: VertexAttribute + 'static, 
+        V: VertexAttribute + 'static, 
         D: Clone + Default + 'static
     {
-        self.set_attribute(component, data);
+        self.set_attribute(attributes, data);
         self
     }
 
     /// Set a known component's data on this instance template
-    pub fn set_attribute<C, D>(&mut self, component: C, data: D) 
+    pub fn set_attribute<V, D>(&mut self, attributes: V, data: D) 
     where 
-        C: VertexAttribute + 'static, 
+        V: VertexAttribute + 'static, 
         D: Clone + Default + 'static
     {
         let vec = DirtyVec::from_vec(vec![data]);
-        self.data.insert(component.name().to_string(), Box::new(vec));
+        self.data.insert(attributes.name().to_string(), Box::new(vec));
     }
 }
 
@@ -182,13 +183,13 @@ impl InstanceData {
     }
 
     /// Add attribute data to this instance group
-    pub fn with_attr(mut self, key: &str, data: impl DynVector) -> Self {
+    pub fn with_attr(mut self, key: &str, data: impl DynDirtyVec) -> Self {
         self.add_attr(key, data);
         self
     }
 
     /// Add attribute data to this instance group
-    pub fn add_attr(&mut self, key: &str, data: impl DynVector) {
+    pub fn add_attr(&mut self, key: &str, data: impl DynDirtyVec) {
         self.attributes.map.insert(key.to_string(), Box::new(data));
     }
 }
@@ -203,7 +204,7 @@ pub struct InstanceGroup {
 impl InstanceGroup {
     /// Create a new instance group
     /// 
-    /// Note: It is expected that the group will be initialized with components with at least init_count amount of data
+    /// Note: It is expected that the group will be initialized with attributes with at least init_count amount of data
     pub fn new(init_count: usize, capacity: usize) -> Self {
         Self {
             label: "instances".to_string(),
@@ -228,7 +229,7 @@ impl InstanceGroup {
         self.instances.count
     }
 
-    /// Add an attribute-component pair with data to the instance group
+    /// Add an attribute to the instance group
     pub fn with_attribute<V, T>(mut self, attribute: V, data: Vec<T>) -> Self
     where 
         V: VertexAttribute + 'static,
@@ -238,7 +239,7 @@ impl InstanceGroup {
         self
     }
 
-    /// Add an attribute-component pair with data to the instance group
+    /// Add an attribute to the instance group
     pub fn add_attribute<V, T>(&mut self, attribute: V, data: Vec<T>)
     where 
         V: VertexAttribute + 'static,
@@ -289,18 +290,17 @@ impl InstanceGroup {
     }
 
     /// Get a reference to the attribute data associated with the provided attribute name, if exists
-    pub fn get_attribute<V, T: 'static>(&self, attribute: V) -> Option<&Vec<DataView<T>>> 
-    where V: VertexAttribute + 'static
+    pub fn get_attribute<T: 'static>(&self, attribute: impl VertexAttribute + 'static) -> Option<&Vec<DataView<T>>> 
     {
         let attributes = self.instances.attributes.get_vec::<DirtyVec<T>>(attribute.name())?;
         Some(&attributes.inner)
     }
 
     /// Get a mutable reference to the attribute data associated with the provided attribute name, if exists
-    pub fn get_attribute_mut<V, T: 'static>(&mut self, attribute: V) -> Option<&mut Vec<DataView<T>>> 
-    where V: VertexAttribute + 'static
+    pub fn get_attribute_mut<T: 'static>(&mut self, attribute: impl VertexAttribute + 'static) -> Option<&mut Vec<DataView<T>>> 
     {
-        self.instances.attributes.get_vec_mut(attribute.name())
+        let attributes = self.instances.attributes.get_vec_mut::<DirtyVec<T>>(attribute.name())?;
+        Some(&mut attributes.inner)
     }
 
     /// Get the vertex layout builder defined by this Geometry
@@ -355,6 +355,22 @@ impl VertexAttribute for TintAttribute {
     fn write_to(&self, idx: usize, attributes: &DynHashMap, buffer: &mut Vec<u8>) {
         if let Some(tints) = attributes.get_vec::<DirtyVec<glam::Vec4>>(TINT_ATTR) {
             buffer.extend_from_slice(bytemuck::bytes_of(&*tints.inner[idx]));
+        }
+    }
+}
+
+/// Instance attribute for uv offsets and scales for use in a spritesheet
+#[derive(Clone, Hash, PartialEq, Eq, Debug)]
+pub struct UVBoundsAttribute;
+
+impl VertexAttribute for UVBoundsAttribute {
+    fn name(&self) -> &'static str { UV_BOUNDS_ATTR }
+    fn location(&self) -> u32 { UV_BOUNDS_LOC }
+    fn format(&self) -> wgpu::VertexFormat { wgpu::VertexFormat::Float32x4 }
+
+    fn write_to(&self, idx: usize, attributes: &DynHashMap, buffer: &mut Vec<u8>) {
+        if let Some(uv_bounds) = attributes.get_vec::<DirtyVec<glam::Vec4>>(UV_BOUNDS_ATTR) {
+            buffer.extend_from_slice(bytemuck::bytes_of(&*uv_bounds.inner[idx]));
         }
     }
 }

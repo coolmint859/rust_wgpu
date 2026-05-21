@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 use crate::graphics::{
-   bind_group::{BindGroupLayoutBuilder, LayoutBindType, LayoutEntry, LayoutVisibility}, material::{ColorComponent, Material, SamplerComponent, TextureComponent}, render_pipeline::RenderPipelineBuilder, shader::ShaderSpecBuilder, texture::SamplerBuilder, vertex::{POSITION_LOC, TINT_LOC, TRANSFORM_LOC, UV_LOC}
+   bind_group::{BindGroupLayoutBuilder, LayoutBindType, LayoutEntry, LayoutVisibility}, material::{ColorComponent, Material, SamplerComponent, TextureComponent}, render_pipeline::RenderPipelineBuilder, shader::ShaderSpecBuilder, texture::SamplerBuilder, vertex::{POSITION_LOC, TINT_LOC, TRANSFORM_LOC, UV_BOUNDS_LOC, UV_LOC}
 };
 
 /// preset material configurations
@@ -33,7 +33,8 @@ impl MaterialPreset {
 
 pub enum ShaderSpecPreset {
     ColoredSprite,
-    TexturedSprite
+    TexturedSprite,
+    AnimatedSprite,
 }
 
 impl ShaderSpecPreset {
@@ -44,6 +45,19 @@ impl ShaderSpecPreset {
                 binding: 0, 
                 visibility: LayoutVisibility::VertexFragment, 
                 ty: LayoutBindType::Uniform 
+            });
+
+        let textured_sprite_layout = BindGroupLayoutBuilder::new()
+            .with_label("textured-sprite")
+            .with_entry(LayoutEntry {
+                binding: 0,
+                visibility: LayoutVisibility::Fragment,
+                ty: LayoutBindType::Texture,
+            })
+            .with_entry(LayoutEntry { 
+                binding: 1, 
+                visibility: LayoutVisibility::Fragment, 
+                ty: LayoutBindType::Sampler 
             });
 
         match self {
@@ -66,19 +80,6 @@ impl ShaderSpecPreset {
                     .with_bg_layout(colored_sprite_layout)
             },
             ShaderSpecPreset::TexturedSprite => {
-                let textured_sprite_layout = BindGroupLayoutBuilder::new()
-                    .with_label("textured-sprite")
-                    .with_entry(LayoutEntry {
-                        binding: 0,
-                        visibility: LayoutVisibility::Fragment,
-                        ty: LayoutBindType::Texture,
-                    })
-                    .with_entry(LayoutEntry { 
-                        binding: 1, 
-                        visibility: LayoutVisibility::Fragment, 
-                        ty: LayoutBindType::Sampler 
-                    });
-
                 ShaderSpecBuilder::new(&self.path())
                     .with_vertex_attribute(POSITION_LOC, wgpu::VertexFormat::Float32x3)
                     .with_vertex_attribute(UV_LOC, wgpu::VertexFormat::Float32x2)
@@ -89,6 +90,19 @@ impl ShaderSpecPreset {
                     .with_instance_attribute(TINT_LOC, wgpu::VertexFormat::Float32x4)
                     .with_bg_layout(global_bg_layout)
                     .with_bg_layout(textured_sprite_layout)
+            },
+            ShaderSpecPreset::AnimatedSprite => {
+                ShaderSpecBuilder::new(&self.path())
+                    .with_vertex_attribute(POSITION_LOC, wgpu::VertexFormat::Float32x3)
+                    .with_vertex_attribute(UV_LOC, wgpu::VertexFormat::Float32x2)
+                    .with_instance_attribute(TRANSFORM_LOC, wgpu::VertexFormat::Float32x4)
+                    .with_instance_attribute(TRANSFORM_LOC+1, wgpu::VertexFormat::Float32x4)
+                    .with_instance_attribute(TRANSFORM_LOC+2, wgpu::VertexFormat::Float32x4)
+                    .with_instance_attribute(TRANSFORM_LOC+3, wgpu::VertexFormat::Float32x4)
+                    .with_instance_attribute(TINT_LOC, wgpu::VertexFormat::Float32x4)
+                    .with_instance_attribute(UV_BOUNDS_LOC, wgpu::VertexFormat::Float32x4)
+                    .with_bg_layout(global_bg_layout)
+                    .with_bg_layout(textured_sprite_layout)
             }
         }
     }
@@ -97,6 +111,7 @@ impl ShaderSpecPreset {
         match self {
             ShaderSpecPreset::ColoredSprite => "src/graphics/shaders/colored_sprite.wgsl".to_string(),
             ShaderSpecPreset::TexturedSprite => "src/graphics/shaders/textured_sprite.wgsl".to_string(),
+            ShaderSpecPreset::AnimatedSprite => "src/graphics/shaders/animated_sprite.wgsl".to_string(),
         }
     }
 
@@ -105,6 +120,8 @@ impl ShaderSpecPreset {
             Some(ShaderSpecPreset::ColoredSprite.get())
         } else if shader_path == &ShaderSpecPreset::TexturedSprite.path() {
             Some(ShaderSpecPreset::TexturedSprite.get())
+        } else if shader_path == &ShaderSpecPreset::AnimatedSprite.path() {
+            Some(ShaderSpecPreset::AnimatedSprite.get())
         } else {
             None
         }
@@ -117,6 +134,8 @@ pub enum RenderPipeline {
     ColoredSprite,
     /// 2D textured sprite pipeline
     TexturedSprite,
+    /// 2D animated sprite pipeline
+    AnimatedSprite,
 }
 
 impl RenderPipeline {
@@ -128,6 +147,21 @@ impl RenderPipeline {
             }
             RenderPipeline::TexturedSprite => {
                 RenderPipelineBuilder::new().with_label("textured-sprite")
+                    .with_custom_blending( wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::SrcAlpha,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        }
+                    })
+            },
+            RenderPipeline::AnimatedSprite => {
+                RenderPipelineBuilder::new().with_label("animated-sprite")
                     .with_custom_blending( wgpu::BlendState {
                         color: wgpu::BlendComponent {
                             src_factor: wgpu::BlendFactor::SrcAlpha,

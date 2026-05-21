@@ -50,7 +50,7 @@ impl Camera2D {
     pub fn new(key: &str) -> Self {
         Self {
             key: key.to_string(),
-            transform: DataView::new(Transform::identity()),
+            transform: DataView::new(Transform::default()),
             zoom: 1.0,
             aspect: 1.0,
             is_dirty: Cell::new(true),

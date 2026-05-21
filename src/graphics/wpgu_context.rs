@@ -310,7 +310,7 @@ impl WgpuContext {
             }
         }
 
-        // println!("found resources: {:?}, expected respources: {:?}", resource_pairs, bindings);
+        // println!("found resources: {:#?}, expected respources: {:#?}", resource_pairs, bindings);
 
         // all resources found, safe to create bind group
         if resource_pairs.len() == bindings.len() {
@@ -345,15 +345,15 @@ impl WgpuContext {
     }
 
     /// initialize a new texture request
-    pub fn process_texture(&mut self, key: &ResourceID, builder: &TextureBuilder) {
-        if self.texture_handler.contains(key) { return; }
+    pub fn process_texture(&mut self, id: &ResourceID, builder: &TextureBuilder) {
+        if self.texture_handler.contains(id) { return; }
 
         let context = Arc::new(TextureContext {
             device: Arc::clone(&self.core.device),
             queue: Arc::clone(&self.core.queue),
         });
 
-        self.texture_handler.request_new(&key, builder, context);
+        self.texture_handler.request_new(&id, builder, context);
     }
 
     /// initialize a new sampler request
@@ -464,10 +464,10 @@ impl WgpuContext {
             let u_mat_status = self.bindgroup_handler.status_of(&command.material_id);
             let u_instance_status = self.buffer_handler.status_of(&command.instance_id);
 
-            // println!("mesh ready? {}", geo_status.is_some());
-            // println!("pipeline ready? {}", pip_status.is_some());
+            // println!("geometry ready? {}", vert_status.is_some() && idx_status.is_some());
             // println!("material ready? {}", u_mat_status.is_some());
-            // println!("transforms ready? {}", u_instance_status.is_some());
+            // println!("instances ready? {}", u_instance_status.is_some());
+            // println!("pipeline ready? {}", pip_status.is_some());
 
             if let (Some(ResourceStatus::Ready(vtx_buffer)),
                     Some(ResourceStatus::Ready(idx_buffer)),

@@ -19,6 +19,8 @@ pub const NORMAL_LOC: u32 = 2;
 pub const TRANSFORM_LOC: u32 = 8;
 /// instance tint shader location
 pub const TINT_LOC: u32 = 12;
+/// instance spritesheet texture bounds shader location
+pub const UV_BOUNDS_LOC: u32 = 13;
 
 /// represents attributes that can be packed into a vertex/instance buffer
 pub trait VertexAttribute {

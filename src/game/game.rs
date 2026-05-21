@@ -2,15 +2,15 @@
 
 const PI: f32 = 3.1415;
 
-use glam::Vec3;
+use glam::{Quat, Vec3, Vec4};
 
-use crate::{game::particle::{ParticleConfig, ParticleSystem, Variance}, graphics::{
-    camera::{Camera, Camera2D}, entity::{Entity, RenderInfo}, geometry::{Geometry, PositionAttribute, UVAttribute}, init_state::StateInit, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, renderer::Renderer, shape_factory::Shape2D, traits::Driver, transform::Transform
+use crate::{game::particle::{ParticleConfig, ParticleEmitter2D, Variance}, graphics::{
+    animation::{SyncedAnimatedSprite, SyncedAnimatedSpriteConfig}, camera::{Camera, Camera2D}, entity::{Entity, RenderInfo}, geometry::{Geometry, PositionAttribute, UVAttribute}, init_state::StateInit, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, renderer::Renderer, shape_factory::Shape2D, traits::{AnimationController, Driver}, transform::Transform
 }};
 
 pub struct Game {
-    particles: ParticleSystem,
-    blue_devils: Entity,
+    particles: ParticleEmitter2D,
+    flag: SyncedAnimatedSprite,
     camera: Camera2D,
 }
 
@@ -18,22 +18,19 @@ impl Game {
     pub fn new() -> Self {
         let camera = Camera2D::new("camera-2d");
         
-        let geometry = Geometry::new(Shape2D::new().square())
-            .with_attribute(PositionAttribute)
-            .with_attribute(UVAttribute);
+        let flag = SyncedAnimatedSprite::from_config(SyncedAnimatedSpriteConfig {
+            path: "./assets/flag.png",
+            frame_times: vec![0.05, 0.20, 0.10],
+            transforms: vec![
+                Transform::new(Vec3 { x: -0.5, y: 0.5, z: 1.0}, Quat::IDENTITY, Vec3 { x: 0.15, y: 0.15, z: 1.0}),
+                Transform::new(Vec3 { x: 0.5, y: 0.5, z: 1.0}, Quat::IDENTITY, Vec3 { x: 0.15, y: 0.15, z: 1.0}),
+                Transform::new(Vec3 { x: 0.5, y: -0.5, z: 1.0}, Quat::IDENTITY, Vec3 { x: 0.15, y: 0.15, z: 1.0}),
+                Transform::new(Vec3 { x: -0.5, y: -0.5, z: 1.0}, Quat::IDENTITY, Vec3 { x: 0.15, y: 0.15, z: 1.0}),
+                ],
+            color: Vec4::new(1.0, 1.0, 0.0, 1.0),
+        });
 
-        let blue_devils = Entity::new(
-            "blue-devils",
-            geometry,
-            MaterialPreset::TexturedSprite("./assets/BlueDevilsLogo.png".to_string()).with_label("blue-devils"),
-            Transform::identity(),
-            RenderInfo {
-                shader_path: ShaderSpecPreset::TexturedSprite.path(),
-                pipeline: RenderPipeline::TexturedSprite.get()
-            }
-        );
-
-        let particles = ParticleSystem::new(ParticleConfig {
+        let particles = ParticleEmitter2D::new(ParticleConfig {
             total_particles: 5000,
             spawn_cap: 500,
             emit_center: Vec3 { x: 0.0, y: 0.0, z: 0.0 },
@@ -46,7 +43,7 @@ impl Game {
             is_one_shot: false
         });
 
-        Self { particles, blue_devils, camera, }
+        Self { particles, flag, camera, }
     }
 }
 
@@ -59,9 +56,9 @@ impl Driver for Game {
         
     }
 
-    fn update(&mut self, dt: f32, et: f32) {
-        self.blue_devils.first_mut().transform_mut().set_x(et-1.0);
-        self.particles.update(dt);
+    fn update(&mut self, dt: f32, _et: f32) {
+        self.flag.update(dt);
+        // self.particles.update(dt);
     }
 
     fn render(&mut self, renderer: &mut Renderer, aspect: f32) {
@@ -70,8 +67,8 @@ impl Driver for Game {
         // renderer.set_bg_color(0.392, 0.584, 0.929);
         renderer.set_camera(&mut self.camera);
 
-        renderer.draw(&mut self.blue_devils);
+        self.flag.render(renderer);
 
-        self.particles.render(renderer);
+        // self.particles.render(renderer);
     }
 } 
