@@ -2,92 +2,78 @@
 
 use glam::Vec4;
 
-use crate::graphics::{entity::{Entity, RenderInfo}, geometry::{Geometry, PositionAttribute, UVAttribute}, instance::{InstanceGroup, TintAttribute, TransformAttribute, UVBoundsAttribute}, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, renderer::Renderer, shape_factory::Shape2D, traits::AnimationController, transform::Transform};
+use crate::graphics::{ entity::{self, Entity, RenderInfo}, geometry::{Geometry, PositionAttribute, UVAttribute}, instance::{InstanceGroup, TintAttribute, TransformAttribute, UVBoundsAttribute}, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, renderer::Renderer, shape_factory::Shape2D, transform::Transform, vertex::VertexData};
 
-pub struct SyncedAnimatedSpriteConfig {
-    pub path: &'static str, // replace with dedicated struct
-    pub frame_times: Vec<f32>,
-    pub transforms: Vec<Transform>,
-    pub color: glam::Vec4 
+/// Represents animation behaviors on an entity orchestrated by an AnimationController
+pub trait Animation {
+    /// Advance the animation and update the instance attributes
+    /// 
+    /// * 'instances' - the set of instance data to update based on the animation
+    /// * 'curr_frame' - the current animation frame
+    /// * 'et' - the total elapsed time
+    fn update(&mut self, instances: &mut VertexData, curr_frame: usize, et: f32);
 }
 
-/// An animated sprite where instance animations are updated (synced) together.
-pub struct SyncedAnimatedSprite  {
-    sprites: Entity,
+/// Represents systems that control animated entities
+pub trait AnimationController {
+    /// advance the animation and animate the provided instances
+    fn animate(&mut self, entity: &mut Entity, dt: f32, et: f32);
+}
+
+pub struct CyclicAnimator {
+    /// the set of associated animations
+    animations: Vec<Box<dyn Animation>>,
+    /// the amount of time between animation frames
     frame_times: Vec<f32>,
-    frames: SpriteSheet,
+    /// The current animation frame
     current_frame: usize,
-    timer: f32,
+    /// the timer for individual frames
+    frame_timer: f32,
 }
 
-impl SyncedAnimatedSprite {
-    pub fn from_config(config: SyncedAnimatedSpriteConfig) -> Self {
-        let geometry = Geometry::new(Shape2D::new().square())
-            .with_attribute(PositionAttribute)
-            .with_attribute(UVAttribute);
-
-        let mut uv_bounds = Vec::new();
-        let mut colors = Vec::new();
-        for _ in 0..config.transforms.len() {
-            uv_bounds.push(glam::Vec4::new(0.0, 0.0, 1.0, 1.0));
-            colors.push(config.color.clone())
-        }
-
-        let instances = InstanceGroup::new(config.transforms.len(), config.transforms.len())
-            .with_attribute(TransformAttribute, config.transforms)
-            .with_attribute(TintAttribute, colors)
-            .with_attribute(UVBoundsAttribute, uv_bounds);
-
-        let sprites = Entity::from_group(
-            config.path, 
-            geometry, 
-            MaterialPreset::TexturedSprite(config.path.to_string()).with_label("animated-sprite"), 
-            instances, 
-            RenderInfo { 
-                shader_path: ShaderSpecPreset::AnimatedSprite.path(), 
-                pipeline: RenderPipeline::AnimatedSprite.get(), 
-            }
-        );
-
+impl CyclicAnimator {
+    pub fn new(frame_times: Vec<f32>) -> Self {
         Self {
-            sprites,
-            frames: SpriteSheet::new(config.frame_times.len(), 1),
-            frame_times: config.frame_times,
+            animations: Vec::new(),
             current_frame: 0,
-            timer: 0.0,
+            frame_times,
+            frame_timer: 0.0,
         }
+    }
+
+    /// Add an animation to this animation controller
+    pub fn with_animation(mut self, animation: impl Animation + 'static) -> Self {
+        self.animations.push(Box::new(animation));
+        self
+    }
+
+    /// Add an animation to this animation controller
+    pub fn add_animation(&mut self, animation: impl Animation + 'static) {
+        self.animations.push(Box::new(animation));
     }
 }
 
-impl AnimationController for SyncedAnimatedSprite {
-    fn update(&mut self, dt: f32) {
-        self.timer += dt;
+impl AnimationController for CyclicAnimator {
+    fn animate(&mut self, entity: &mut Entity, dt: f32, et: f32) {
+        self.frame_timer += dt;
 
-        if let Some(uv_bounds) = self.sprites.instances.get_attribute_mut::<glam::Vec4>(UVBoundsAttribute) {;
-            if self.timer < self.frame_times[self.current_frame] { return; }
+        if self.frame_timer >= self.frame_times[self.current_frame] { 
+            self.frame_timer -= self.frame_times[self.current_frame];
             self.current_frame = (self.current_frame + 1) % self.frame_times.len();
-
-            for bounds in uv_bounds {
-                bounds.set(*self.frames.get(self.current_frame));
-            }
-
-            self.timer = 0.0;
         }
-
-        // println!("timer: {:?}", self.timer);
-    }
-
-    fn render(&mut self, renderer: &mut Renderer) {
-        renderer.draw(&mut self.sprites);
+        
+        for anim in self.animations.iter_mut() {
+            anim.update(entity.instances.get_instances_mut(), self.current_frame, et);
+        }
     }
 }
 
-pub struct SpriteSheet {
-    pub frames: Vec<Vec4>,
-    pub current_frame: usize,
+/// Constructs equally spaced uv offsets and scales for use in a TextureComponent
+pub struct UniformSpriteSheet {
+    frames: Vec<Vec4>,
 }
 
-impl SpriteSheet {
+impl UniformSpriteSheet {
     fn new(cols: usize, rows: usize) -> Self {
         let mut frames = Vec::with_capacity(cols * rows);
 
@@ -103,18 +89,95 @@ impl SpriteSheet {
             }
         }
 
-        Self { frames, current_frame: 0 }
+        Self { frames }
     }
 
+    /// Get the bounds stored at the given index
     fn get(&self, idx: usize) -> &Vec4 {
         self.frames.get(idx).unwrap()
     }
 }
 
-// impl Iterator for SpriteSheet {
-//     type Item = Vec4;
+/// Animates a texture by updating the uv bounds based on a sprite sheet.
+pub struct TextureAnimation  {
+    sheet: UniformSpriteSheet,
+    last_frame: usize,
+}
 
-//     fn next(&mut self) -> Option<Self::Item> {
-        
-//     }
-// }
+impl TextureAnimation {
+    pub fn new(cols: usize, rows: usize) -> Self {
+        Self { 
+            sheet: UniformSpriteSheet::new(cols, rows),
+            last_frame: 0,
+        }
+    }
+}
+
+impl Animation for TextureAnimation {
+    fn update(&mut self, instances: &mut VertexData, curr_frame: usize, _et: f32) {
+        if self.last_frame == curr_frame { return; }
+        self.last_frame = curr_frame;
+
+        if let Some(uv_bounds) = instances.get_attribute_mut::<Vec4>(UVBoundsAttribute) {
+            for bounds in uv_bounds.iter_mut() {
+                bounds.set(*self.sheet.get(self.last_frame));
+            }
+        }
+    }
+}
+
+pub enum FadeMode {
+    /// Linearly increase the alpha value to 1
+    Increase,
+    /// Linearly decrease the alpha value to 0
+    Decrease,
+    /// Update the alpha value according to a square wave
+    Square,
+    /// Update the alpha value according to a sine wave with the provided phase
+    Sinusoidal(f32)
+}
+
+impl FadeMode {
+    /// Get the alpha value for a fade antimation based on the duration and elapsed time
+    pub fn get_alpha(&self, et: f32, duration: f32) -> f32 {
+        if duration <= 0.0 { return 1.0 }
+
+        let progress = (et % duration) / duration;
+        match self {
+            FadeMode::Increase => progress.min(1.0),
+            FadeMode::Decrease => (1.0 - progress).max(0.0),
+            FadeMode::Square => {
+                if progress >= 0.5 { return 1.0 }
+                else { return 0.0 };
+            }
+            FadeMode::Sinusoidal(phase) => {
+                let angle = progress * std::f32::consts::TAU;
+                ((angle + phase).sin() * 0.5) + 0.5
+            }
+        }
+    }
+}
+
+/// Fades an entity according a mode for a specified duration
+pub struct FadeAnimation {
+    mode: FadeMode,
+    duration: f32,
+}
+
+impl FadeAnimation {
+    pub fn new(mode: FadeMode, duration: f32) -> Self {
+        Self { mode, duration }
+    }
+}
+
+impl Animation for FadeAnimation {
+    fn update(&mut self, instances: &mut VertexData, _curr_frame: usize, et: f32) {
+        let alpha = self.mode.get_alpha(et, self.duration);
+
+        if let Some(tints) = instances.get_attribute_mut::<Vec4>(TintAttribute) {
+            for tint in tints.iter_mut() {
+                tint.w = alpha;
+            }
+        }
+    }
+}

@@ -1,7 +1,9 @@
 #![allow(dead_code)]
 use std::collections::HashMap;
 
-use crate::graphics::{buffer::BufferBuilder, data_utils::{DataView, DirtyVec, DynDirtyVec, DynHashMap, PackingUtils}, transform::Transform, vertex::{TINT_LOC, TRANSFORM_LOC, UV_BOUNDS_LOC, VertexAttribute, VertexLayoutBuilder}, wpgu_context::ResourceUpdate};
+use glam::Vec4;
+
+use crate::graphics::{buffer::BufferBuilder, data_utils::{DataView, DirtyVec, DynDirtyVec, PackingUtils}, transform::Transform, vertex::{TINT_LOC, TRANSFORM_LOC, UV_BOUNDS_LOC, VertexAttribute, VertexData, VertexLayoutBuilder}, wpgu_context::ResourceUpdate};
 
 pub const TRANSFORM_ATTR: &str = "transform";
 pub const TINT_ATTR: &str = "tint";
@@ -62,18 +64,18 @@ impl Clone for InstanceTemplate {
 /// Represents a proxy to an instance in an instance group
 pub struct Instance<'a> {
     index: usize,
-    data: &'a InstanceData
+    data: &'a VertexData
 }
 
 impl<'a> Instance<'a> {
-    pub fn new(data: &'a InstanceData, index: usize) -> Self {
+    pub fn new(data: &'a VertexData, index: usize) -> Self {
         Self { index, data }
     }
 
     /// Get the properties (known attribute names) of this instance
     pub fn properties(&self) -> Vec<String> {
         let mut properties = Vec::new();
-        for (prop, _) in &self.data.attributes.map {
+        for (prop, _) in &self.data.attributes {
             properties.push(prop.clone())
         }
 
@@ -96,7 +98,7 @@ impl<'a> Instance<'a> {
 
     /// Get a reference to an attribute associated with this instance (if no attribute is found, None is returned) 
     pub fn get_attribute<T: 'static>(&self, attribute: impl VertexAttribute + 'static) -> Option<&DataView<T>> {
-        let attributes = self.data.attributes.get_vec::<DirtyVec<T>>(attribute.name())?;
+        let attributes = self.data.attributes.get(attribute.name())?.downcast_ref::<T>()?;
         Some(&attributes.inner[self.index])
     }
 }
@@ -104,18 +106,18 @@ impl<'a> Instance<'a> {
 /// Represents a mutable proxy to an instance in an instance group
 pub struct InstanceMut<'a> {
     index: usize,
-    data: &'a mut InstanceData 
+    data: &'a mut VertexData 
 }
 
 impl<'a> InstanceMut<'a> {
-    pub fn new(data: &'a mut InstanceData, index: usize) -> Self {
+    pub fn new(data: &'a mut VertexData, index: usize) -> Self {
         Self { index, data }
     }
 
     /// Get the properties (known attribute names) of this instance
     pub fn properties(&self) -> Vec<String> {
         let mut properties = Vec::new();
-        for (prop, _) in &self.data.attributes.map {
+        for (prop, _) in &self.data.attributes {
             properties.push(prop.clone())
         }
 
@@ -152,52 +154,21 @@ impl<'a> InstanceMut<'a> {
 
     /// Get a reference to an attribute associated with this instance (if no attribute is found, None is returned) 
     pub fn get_attribute<T: 'static>(&self, attribute: impl VertexAttribute + 'static) -> Option<&DataView<T>> {
-        let attributes = self.data.attributes.get_vec::<DirtyVec<T>>(attribute.name())?;
+        let attributes = self.data.attributes.get(attribute.name())?.downcast_ref::<T>()?;
         Some(&attributes.inner[self.index])
     }
 
     /// Get a reference to an attribute associated with this instance (if no attribute is found, None is returned) 
     pub fn get_attribute_mut<T: 'static>(&mut self, attribute: impl VertexAttribute + 'static) -> Option<&mut DataView<T>> {
-        let attributes = self.data.attributes.get_vec_mut::<DirtyVec<T>>(attribute.name())?;
+        let attributes = self.data.attributes.get_mut(attribute.name())?.downcast_mut::<T>()?;
         Some(&mut attributes.inner[self.index])
-    }
-}
-
-/// Contains the raw data used in an instance buffer
-pub struct InstanceData {
-    /// The instance attributes
-    pub attributes: DynHashMap,
-    /// The number of active instances
-    pub count: usize,
-    /// the capacity of the instance group
-    pub capacity: usize,
-}
-
-impl InstanceData {
-    pub fn new(count: usize, capacity: usize) -> Self {
-        Self {
-            attributes: DynHashMap::new(),
-            count,
-            capacity
-        }
-    }
-
-    /// Add attribute data to this instance group
-    pub fn with_attr(mut self, key: &str, data: impl DynDirtyVec) -> Self {
-        self.add_attr(key, data);
-        self
-    }
-
-    /// Add attribute data to this instance group
-    pub fn add_attr(&mut self, key: &str, data: impl DynDirtyVec) {
-        self.attributes.map.insert(key.to_string(), Box::new(data));
     }
 }
 
 /// Represents the instances of an entity.
 pub struct InstanceGroup {
     label: String,
-    instances: InstanceData,
+    instances: VertexData,
     attributes: Vec<Box<dyn VertexAttribute>>,
 }
 
@@ -208,7 +179,7 @@ impl InstanceGroup {
     pub fn new(init_count: usize, capacity: usize) -> Self {
         Self {
             label: "instances".to_string(),
-            instances: InstanceData::new(init_count, capacity),
+            instances: VertexData::new(init_count, capacity).with_label("instances"),
             attributes: Vec::new()
         }
     }
@@ -246,7 +217,7 @@ impl InstanceGroup {
         T: Clone + Default + 'static,
     {
         let dirty_vec = DirtyVec::<T>::from_vec(data);
-        self.instances.add_attr(attribute.name(), dirty_vec);
+        self.instances.add_attribute(attribute.name(), dirty_vec);
         self.attributes.push(Box::new(attribute));
     }
 
@@ -266,7 +237,7 @@ impl InstanceGroup {
 
     /// Add an instance to the instance group from an instance template
     pub fn add_instance(&mut self, mut instance: InstanceTemplate) {
-        for (name, attr) in &mut self.instances.attributes.map {
+        for (name, attr) in &mut self.instances.attributes {
             if let Some(val) = instance.data.remove(name.as_str()) {
                 attr.as_mut().append_from(val.as_ref());
             } else {
@@ -282,7 +253,7 @@ impl InstanceGroup {
     pub fn remove_instance(&mut self, idx: usize) {
         if idx >= self.instances.count { return; }
 
-        for attr in self.instances.attributes.map.values_mut() {
+        for attr in self.instances.attributes.values_mut() {
             attr.swap_remove(idx);
             attr.mark_dirty(idx);
         }
@@ -290,17 +261,23 @@ impl InstanceGroup {
     }
 
     /// Get a reference to the attribute data associated with the provided attribute name, if exists
-    pub fn get_attribute<T: 'static>(&self, attribute: impl VertexAttribute + 'static) -> Option<&Vec<DataView<T>>> 
-    {
-        let attributes = self.instances.attributes.get_vec::<DirtyVec<T>>(attribute.name())?;
-        Some(&attributes.inner)
+    pub fn get_attribute<T: 'static>(&self, attribute: impl VertexAttribute + 'static) -> Option<&Vec<DataView<T>>> {
+        self.instances.get_attribute::<T>(attribute)
     }
 
     /// Get a mutable reference to the attribute data associated with the provided attribute name, if exists
-    pub fn get_attribute_mut<T: 'static>(&mut self, attribute: impl VertexAttribute + 'static) -> Option<&mut Vec<DataView<T>>> 
-    {
-        let attributes = self.instances.attributes.get_vec_mut::<DirtyVec<T>>(attribute.name())?;
-        Some(&mut attributes.inner)
+    pub fn get_attribute_mut<T: 'static>(&mut self, attribute: impl VertexAttribute + 'static) -> Option<&mut Vec<DataView<T>>> {
+        self.instances.get_attribute_mut::<T>(attribute)
+    }
+
+    /// Get a reference to the instance (vertex) data associated with this group
+    pub fn get_instances(&self) -> &VertexData {
+        &self.instances
+    }
+
+    /// Get a mutable reference to the instance (vertex) data associated with this group
+    pub fn get_instances_mut(&mut self) -> &mut VertexData {
+        &mut self.instances
     }
 
     /// Get the vertex layout builder defined by this Geometry
@@ -309,8 +286,8 @@ impl InstanceGroup {
     }
 
     /// Get the builder for the instance buffer used by this instance group.
-    pub fn get_buffer_builder(&self) -> BufferBuilder {
-        let instance_bytes = PackingUtils::pack(self.instances.count, &self.instances.attributes, &self.attributes);
+    pub fn get_buffer_builder(&mut self) -> BufferBuilder {
+        let instance_bytes = PackingUtils::pack(self.instances.count, &mut self.instances, &self.attributes);
         let buffer_cap = self.instances.capacity * PackingUtils::instance_stride(&self.attributes);
         
         BufferBuilder::as_vertex()
@@ -320,8 +297,8 @@ impl InstanceGroup {
     }
 
     /// Get all updates on the instance data in a vector
-    pub fn get_updated(&self) -> Vec<ResourceUpdate> {
-        PackingUtils::get_updated(self.instances.count, &self.instances.attributes, &self.attributes)
+    pub fn get_updated(&mut self) -> Vec<ResourceUpdate> {
+        PackingUtils::get_updated(self.instances.count, &mut self.instances, &self.attributes)
     }
 }
 
@@ -335,10 +312,9 @@ impl VertexAttribute for TransformAttribute {
     fn format(&self) -> wgpu::VertexFormat { wgpu::VertexFormat::Float32x4 }
     fn attr_count(&self) -> u32 { 4 }
 
-    fn write_to(&self, idx: usize, attributes: &DynHashMap, buffer: &mut Vec<u8>) {
-        if let Some(transforms) = attributes.get_vec::<DirtyVec<Transform>>(TRANSFORM_ATTR) {
-            let world_mat = transforms.inner[idx].world_matrix();
-            buffer.extend_from_slice(bytemuck::bytes_of(&world_mat));
+    fn write_to(&self, idx: usize, instances: &VertexData, buffer: &mut Vec<u8>) {
+        if let Some(transform) = instances.get_attribute::<Transform>(Self).and_then(|transforms| transforms.get(idx)) {
+            buffer.extend_from_slice(bytemuck::bytes_of(&transform.to_updated()));
         }
     }
 }
@@ -352,9 +328,9 @@ impl VertexAttribute for TintAttribute {
     fn location(&self) -> u32 { TINT_LOC }
     fn format(&self) -> wgpu::VertexFormat { wgpu::VertexFormat::Float32x4 }
 
-    fn write_to(&self, idx: usize, attributes: &DynHashMap, buffer: &mut Vec<u8>) {
-        if let Some(tints) = attributes.get_vec::<DirtyVec<glam::Vec4>>(TINT_ATTR) {
-            buffer.extend_from_slice(bytemuck::bytes_of(&*tints.inner[idx]));
+    fn write_to(&self, idx: usize, instances: &VertexData, buffer: &mut Vec<u8>) {
+        if let Some(tint) = instances.get_attribute::<Vec4>(Self).and_then(|tints| tints.get(idx)) {
+            buffer.extend_from_slice(bytemuck::bytes_of(tint.as_ref()));
         }
     }
 }
@@ -368,9 +344,9 @@ impl VertexAttribute for UVBoundsAttribute {
     fn location(&self) -> u32 { UV_BOUNDS_LOC }
     fn format(&self) -> wgpu::VertexFormat { wgpu::VertexFormat::Float32x4 }
 
-    fn write_to(&self, idx: usize, attributes: &DynHashMap, buffer: &mut Vec<u8>) {
-        if let Some(uv_bounds) = attributes.get_vec::<DirtyVec<glam::Vec4>>(UV_BOUNDS_ATTR) {
-            buffer.extend_from_slice(bytemuck::bytes_of(&*uv_bounds.inner[idx]));
+    fn write_to(&self, idx: usize, instances: &VertexData, buffer: &mut Vec<u8>) {
+        if let Some(uv_bounds) = instances.get_attribute::<Vec4>(Self).and_then(|bounds| bounds.get(idx)) {
+            buffer.extend_from_slice(bytemuck::bytes_of(uv_bounds.as_ref()));
         }
     }
 }

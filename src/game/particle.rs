@@ -5,7 +5,7 @@ use glam::{Quat, Vec3, Vec4};
 use rand::random;
 use rand_distr::{Distribution, Normal};
 
-use crate::graphics::{entity::{Entity, RenderInfo}, geometry::{Geometry, PositionAttribute, UVAttribute}, instance::{InstanceGroup, InstanceTemplate, TintAttribute, TransformAttribute}, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, renderer::Renderer, shape_factory::Shape2D, traits::AnimationController, transform::Transform};
+use crate::graphics::{animation::AnimationController, entity::{Entity, RenderInfo}, geometry::{Geometry, PositionAttribute, UVAttribute}, instance::{InstanceGroup, InstanceTemplate, TintAttribute, TransformAttribute}, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, renderer::Renderer, shape_factory::Shape2D, transform::Transform, vertex::VertexData};
 
 static PARTICLE_SYS_COUNTER: AtomicU32 = AtomicU32::new(0);
 
@@ -198,7 +198,7 @@ impl ParticleEmitter2D {
 
 impl AnimationController for ParticleEmitter2D {
     /// Update the particles in this particle system.
-    fn update(&mut self, dt: f32) {
+    fn animate(&mut self, entity: &mut Entity, dt: f32, _et: f32) {
         // spawn new particles if continuous
         if !self.config.is_one_shot {
             let current_alive = self.particles.instances.count();
@@ -233,9 +233,5 @@ impl AnimationController for ParticleEmitter2D {
                 i += 1;
             }
         }
-    }
-
-    fn render(&mut self, renderer: &mut Renderer) {
-        renderer.draw(&mut self.particles);
     }
 }

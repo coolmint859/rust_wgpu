@@ -1,51 +1,13 @@
 #![allow(dead_code)]
-use std::{collections::HashMap, sync::Arc};
+use std::{sync::Arc};
 
-use crate::graphics::{buffer::BufferBuilder, data_utils::{DirtyVec, DynHashMap, DynDirtyVec, PackingUtils}, vertex::{NORMAL_LOC, POSITION_LOC, UV_LOC, VertexAttribute, VertexLayoutBuilder}, wpgu_context::{GeometryID, ResourceID, ResourceScope, ResourceType}};
+use glam::{Vec2, Vec3};
+
+use crate::graphics::{buffer::BufferBuilder, data_utils::PackingUtils, vertex::{NORMAL_LOC, POSITION_LOC, UV_LOC, VertexAttribute, VertexData, VertexLayoutBuilder}, wpgu_context::{GeometryID, ResourceID, ResourceScope, ResourceType}};
 
 pub const POSITION_ATTR: &str = "position";
 pub const UV_ATTR: &str = "uv";
 pub const NORMAL_ATTR: &str = "normal";
-
-/// Contains the raw geometry data as provided. The hashmap serves as a generic store to make it easy to add custom data.
-pub struct GeometryData {
-    /// Generic label for the data
-    pub label: String,
-    /// A map of attribute names to their data
-    pub attributes: DynHashMap,
-    /// vertex indices
-    pub indices: Option<Arc<Vec<u32>>>,
-    /// The number of vertices on this geometry
-    pub vertex_count: usize
-}
-
-impl GeometryData {
-    pub fn new(vertex_count: usize) -> Self {
-        Self {
-            label: "geometry".to_string(),
-            attributes: DynHashMap { map: HashMap::new() },
-            indices: None,
-            vertex_count
-        }
-    }
-
-    pub fn with_label(mut self, label: &str) -> Self {
-        self.label = label.to_string();
-        self
-    }
-
-    /// add attribute data to this geometry
-    pub fn with_attr(mut self, key: &str, data: impl DynDirtyVec) -> Self {
-        self.attributes.map.insert(key.to_string(), Box::new(data));
-        self
-    }
-
-    /// add index data to this geometry
-    pub fn with_indices(mut self, indices: Vec<u32>) -> Self {
-        self.indices = Some(Arc::new(indices));
-        self
-    }
-}
 
 /// The signature of a geometry, including the buffer ids and their builders
 pub struct GeometrySignature {
@@ -55,13 +17,13 @@ pub struct GeometrySignature {
 }
 
 pub struct Geometry {
-    data: Arc<GeometryData>,
+    data: Arc<VertexData>,
     attributes: Vec<Box<dyn VertexAttribute>>,
     packed_data: Option<Vec<u8>>,
 }
 
 impl Geometry {
-    pub fn new(data: Arc<GeometryData>) -> Self {
+    pub fn new(data: Arc<VertexData>) -> Self {
         Self {
             data,
             attributes: Vec::new(),
@@ -119,7 +81,7 @@ impl Geometry {
     pub fn get_signature(&self) -> GeometrySignature {
         let vertex_data = match &self.packed_data {
             Some(data) => data.to_vec(),
-            None => PackingUtils::pack(self.data.vertex_count, &self.data.attributes, &self.attributes)
+            None => PackingUtils::pack(self.data.count, &self.data, &self.attributes)
         };
 
         let index_data = match &self.data.indices {
@@ -152,9 +114,9 @@ impl VertexAttribute for PositionAttribute {
     fn location(&self) -> u32 { POSITION_LOC }
     fn format(&self) -> wgpu::VertexFormat { wgpu::VertexFormat::Float32x3 }
 
-    fn write_to(&self, idx: usize, attributes: &DynHashMap, bytes: &mut Vec<u8>) {
-        if let Some(positions) = attributes.get_vec::<DirtyVec<glam::Vec3>>(POSITION_ATTR) {
-            bytes.extend_from_slice(bytemuck::bytes_of(&*positions.inner[idx]));
+    fn write_to(&self, idx: usize, vertices: &VertexData, buffer: &mut Vec<u8>) {
+        if let Some(position) = vertices.get_attribute::<Vec3>(Self).and_then(|positions| positions.get(idx)) {
+            buffer.extend_from_slice(bytemuck::bytes_of(position.as_ref()));
         }
     }
 }
@@ -168,9 +130,9 @@ impl VertexAttribute for UVAttribute {
     fn location(&self) -> u32 { UV_LOC }
     fn format(&self) -> wgpu::VertexFormat { wgpu::VertexFormat::Float32x2 }
 
-    fn write_to(&self, idx: usize, attributes: &DynHashMap, buffer: &mut Vec<u8>) {
-        if let Some(uvs) = attributes.get_vec::<DirtyVec<glam::Vec2>>(UV_ATTR) {
-            buffer.extend_from_slice(bytemuck::bytes_of(&*uvs.inner[idx]));
+    fn write_to(&self, idx: usize, vertices: &VertexData, buffer: &mut Vec<u8>) {
+        if let Some(uv) = vertices.get_attribute::<Vec2>(Self).and_then(|uvs| uvs.get(idx)) {
+            buffer.extend_from_slice(bytemuck::bytes_of(uv.as_ref()));
         }
     }
 }
@@ -184,9 +146,9 @@ impl VertexAttribute for NormalAttribute {
     fn location(&self) -> u32 { NORMAL_LOC }
     fn format(&self) -> wgpu::VertexFormat { wgpu::VertexFormat::Float32x3 }
 
-    fn write_to(&self, idx: usize, attributes: &DynHashMap, buffer: &mut Vec<u8>) {
-        if let Some(normals) = attributes.get_vec::<DirtyVec<glam::Vec3>>(NORMAL_ATTR) {
-            buffer.extend_from_slice(bytemuck::bytes_of(&*normals.inner[idx]));
+    fn write_to(&self, idx: usize, vertices: &VertexData, buffer: &mut Vec<u8>) {
+        if let Some(normal) = vertices.get_attribute::<Vec3>(Self).and_then(|normals| normals.get(idx)) {
+            buffer.extend_from_slice(bytemuck::bytes_of(normal.as_ref()));
         }
     }
 }

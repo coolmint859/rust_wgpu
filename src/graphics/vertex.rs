@@ -1,7 +1,7 @@
 #![allow(dead_code)]
-use std::{ops::Range, sync::Arc};
+use std::{collections::HashMap, ops::Range, sync::Arc};
 
-use crate::graphics::data_utils::DynHashMap;
+use crate::graphics::data_utils::{DataView, DynDirtyVec};
 
 use super::handler::ResourceBuilder;
 
@@ -37,7 +37,63 @@ pub trait VertexAttribute {
     fn attr_count(&self) -> u32 { 1 }
 
     /// Writes data at the specified index to a byte vector.
-    fn write_to(&self, idx: usize, attributes: &DynHashMap, buffer: &mut Vec<u8>);
+    fn write_to(&self, idx: usize, vertices: &VertexData, buffer: &mut Vec<u8>);
+}
+
+/// A homogenous collection of vertex attributes stored in DynDirtyVectors
+pub struct VertexData {
+    pub label: String,
+    pub attributes: HashMap<String, Box<dyn DynDirtyVec>>,
+    pub count: usize,
+    pub capacity: usize,
+    pub indices: Option<Vec<u32>>
+}
+
+impl VertexData {
+    pub fn new(count: usize, capacity: usize) -> Self {
+        Self {
+            label: "vertex_data".to_string(),
+            attributes: HashMap::new(),
+            count,
+            capacity,
+            indices: None,
+        }
+    }
+
+    /// Set the label for this vertex data
+    pub fn with_label(mut self, label: &str) -> Self {
+        self.label = label.to_string();
+        self
+    }
+
+    /// add an attribute to this set of vertex data
+    pub fn with_attribute(mut self, key: &str, data: impl DynDirtyVec) -> Self {
+        self.attributes.insert(key.to_string(), Box::new(data));
+        self
+    }
+
+    /// add an attribute to this set of vertex data
+    pub fn add_attribute(&mut self, key: &str, data: impl DynDirtyVec) {
+        self.attributes.insert(key.to_string(), Box::new(data));
+    }
+
+    /// Get a reference to the concrete attribute data associated with the provided attribute, if exists
+    pub fn get_attribute<T: 'static>(&self, attribute: impl VertexAttribute + 'static) -> Option<&Vec<DataView<T>>> {
+        let attributes = self.attributes.get(attribute.name())?.downcast_ref::<T>()?;
+        Some(&attributes.inner)
+    }
+
+    /// Get a mutable reference to the concrete attribute data associated with the provided attribute, if exists
+    pub fn get_attribute_mut<T: 'static>(&mut self, attribute: impl VertexAttribute + 'static) -> Option<&mut Vec<DataView<T>>> {
+        let attributes = self.attributes.get_mut(attribute.name())?.downcast_mut::<T>()?;
+        Some(&mut attributes.inner)
+    }
+
+    /// add indices for the vertex data (mostly used for geometry)
+    pub fn with_indices(mut self, indices: Vec<u32>) -> Self {
+        self.indices = Some(indices);
+        self
+    }
 }
 
 #[derive(Clone, Hash, Eq, PartialEq, Debug)]

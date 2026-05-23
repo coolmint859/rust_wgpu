@@ -132,7 +132,7 @@ impl Renderer {
 
         self.context.process_shader_spec(&entity.render_info.shader_path);
         self.process_geometry(entity.geometry_id(), &entity.geometry);
-        self.process_instances(entity.instance_id(), &entity.instances);
+        self.process_instances(entity.instance_id(), &mut entity.instances);
         self.process_material(entity);
         self.context.process_pipeline(&entity.render_info, InitMode::Deferred);
 
@@ -160,7 +160,7 @@ impl Renderer {
     }
 
     /// Process the instance group of an entity
-    fn process_instances(&mut self, instance_id: ResourceID, instances: &InstanceGroup) {
+    fn process_instances(&mut self, instance_id: ResourceID, instances: &mut InstanceGroup) {
         if !self.context.contains_buffer(&instance_id) {
             self.context.process_buffer(&instance_id, &instances.get_buffer_builder());
         } else {

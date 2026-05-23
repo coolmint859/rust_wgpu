@@ -1,10 +1,40 @@
-use std::{any::Any, cell::Cell, collections::HashMap, ops::{Deref, DerefMut}};
+#![allow(dead_code)]
+use std::{any::Any, cell::Cell, ops::{Deref, DerefMut}};
 
 use glam::*;
 
-use crate::graphics::{vertex::{VertexAttribute, VertexLayoutBuilder}, wpgu_context::ResourceUpdate};
+use crate::graphics::{vertex::{VertexAttribute, VertexData, VertexLayoutBuilder}, wpgu_context::ResourceUpdate};
 
-/// Represents a type erased (dynamic) vector for use in heterogenous collections
+/// Represents a type erased vector that stores generic data
+pub trait DynVec: Any {
+    /// Push a default value into the internal vector
+    fn push_default(&mut self);
+    /// Swap the last element in the vector with the one at the index, and then remove the last element.
+    fn swap_remove(&mut self, idx: usize);
+    /// Clone the values of the vector into a new one.
+    fn clone_box(&self) -> Box<dyn DynDirtyVec>;
+    /// Append data from another vector into this one.
+    fn append_from(&mut self, other: &dyn DynDirtyVec);
+
+    /// Convert the data store into it's Any type
+    fn as_any_ref<'a>(&'a self) -> &'a dyn Any;
+    /// Convert the data store into it's Any type as mutable
+    fn as_any_mut<'a>(&'a mut self) -> &'a mut dyn Any;
+}
+
+impl dyn DynVec {
+    /// Downcast this dynamic vector into a reference of the concrete vector type
+    pub fn downcast_ref<T: 'static>(&self) -> Option<&Vec<T>> {
+        self.as_any_ref().downcast_ref::<Vec<T>>()
+    }
+
+    /// Downcast this dynamic vector into a mutable reference of the concrete vector type
+    pub fn downcast_mut<T: 'static>(&mut self) -> Option<&mut Vec<T>> {
+        self.as_any_mut().downcast_mut::<Vec<T>>()
+    }
+}
+
+/// Represents a type erased vector that stores values wrapped in a DataView<T>
 pub trait DynDirtyVec: Any {
     /// Check if data at the specified index has changed
     fn is_dirty(&self, idx: usize) -> bool;
@@ -30,50 +60,13 @@ pub trait DynDirtyVec: Any {
 
 impl dyn DynDirtyVec {
     /// Downcast this dynamic vector into a reference of the concrete vector type
-    pub fn downcast_ref<V: 'static>(&self) -> Option<&V> {
-        self.as_any_ref().downcast_ref::<V>()
+    pub fn downcast_ref<T: 'static>(&self) -> Option<&DirtyVec<T>> {
+        self.as_any_ref().downcast_ref::<DirtyVec<T>>()
     }
 
     /// Downcast this dynamic vector into a mutable reference of the concrete vector type
-    pub fn downcast_mut<V: 'static>(&mut self) -> Option<&mut V> {
-        self.as_any_mut().downcast_mut::<V>()
-    }
-}
-
-/// A hashmap that stores DynVector instances keyed by a String
-pub struct DynHashMap {
-    pub map: HashMap<String, Box<dyn DynDirtyVec>>
-}
-
-impl DynHashMap {
-    pub fn new() -> Self {
-        Self { map: HashMap::new() }
-    }
-
-    /// Downcast the keyed data storage struct into a vector of the provided concrete type.
-    /// 
-    /// If the provided concrete type does not match the stored type, then None is returned
-    pub fn get_vec<T: 'static>(&self, key: &str) -> Option<&T> {
-        self.map.get(key)?.downcast_ref::<T>()
-    }
-
-    /// Downcast the keyed data storage struct into a mutable vector of the provided concrete type.
-    /// 
-    /// If the provided concrete type does not match the stored type, then None is returned
-    pub fn get_vec_mut<T: 'static>(&mut self, key: &str) -> Option<&mut T> {
-        self.map.get_mut(key)?.downcast_mut::<T>()
-    }
-
-    /// Check if the data at the provided index in the keyed data storage is dirty
-    pub fn is_dirty(&self, key: &str, idx: usize) -> bool {
-        self.map.get(key).map_or(false, |data_store| data_store.is_dirty(idx))
-    }
-
-    /// Mark the data at the provided index in the keyed data storage as clean
-    pub fn mark_clean(&self, key: &str, idx: usize) {
-        if let Some(data_store) = self.map.get(key) {
-            data_store.mark_clean(idx);
-        }
+    pub fn downcast_mut<T: 'static>(&mut self) -> Option<&mut DirtyVec<T>> {
+        self.as_any_mut().downcast_mut::<DirtyVec<T>>()
     }
 }
 
@@ -161,7 +154,7 @@ impl<T: Default + Clone + 'static> DynDirtyVec for DirtyVec<T> {
 
     fn clone_box(&self) -> Box<dyn DynDirtyVec> {
         Box::new(Self {
-            inner: self.inner.iter().map(|dv| dv.clone()).collect()
+            inner: self.inner.clone()
         })
     }
 
@@ -188,6 +181,21 @@ impl<T: Default + Clone + 'static> DirtyVec<T> {
 
         Self { inner: dirty_vec }
     }
+
+    /// Get a reference to a raw element in the internal vector
+    pub fn get_raw(&self, idx: usize) -> Option<&T> {
+        Some(&*self.inner.get(idx)?)
+    }
+
+    /// Get a reference to a raw element in the internal vector
+    pub fn get(&self, idx: usize) -> Option<&DataView<T>> {
+        self.inner.get(idx)
+    }
+
+    /// Get a mutable reference to an element in the internal vector
+    pub fn get_mut(&mut self, idx: usize) -> Option<&mut DataView<T>> {
+        self.inner.get_mut(idx)
+    }
 }
 
 /// Contains helper functions to convert vertex/instance components into a byte vector and layout
@@ -201,7 +209,7 @@ impl PackingUtils {
     /// * components: **&Vec<Box<dyn VertexComponent>>** - the set of components to filter the attribute data with
     pub fn pack(
         count: usize, 
-        attributes: &DynHashMap,
+        vertices: &VertexData,
         components: &[Box<dyn VertexAttribute>],
     ) -> Vec<u8> {
         let mut packed = Vec::new();
@@ -209,9 +217,9 @@ impl PackingUtils {
         let mut sorted_components: Vec<&Box<dyn VertexAttribute>> = components.iter().collect();
         sorted_components.sort_by_key(|c| c.location());
 
-        for idx in 0..count {
-            for component in sorted_components.iter() {
-                component.write_to(idx, &attributes, &mut packed);
+        for i in 0..count {
+            for comp in sorted_components.iter() {
+                comp.write_to(i, vertices, &mut packed);
             }
         }
 
@@ -225,7 +233,7 @@ impl PackingUtils {
     /// * components: **&Vec<Box<dyn VertexComponent>>** - the set of components to filter the attribute data with
     pub fn get_updated(
         count: usize,
-        attributes: &DynHashMap,
+        vertices: &VertexData,
         components: &[Box<dyn VertexAttribute>],
     ) -> Vec<ResourceUpdate> {
         let stride = PackingUtils::instance_stride(components);
@@ -233,7 +241,7 @@ impl PackingUtils {
 
         let mut i = 0;
         while i < count {
-            if !PackingUtils::is_instance_dirty(i, attributes, components) {
+            if !PackingUtils::is_instance_dirty(i, vertices, components) {
                 i+=1;
                 continue;
             }
@@ -241,12 +249,12 @@ impl PackingUtils {
             let start_idx = i; // save for the offset calculation
             let mut data_span: Vec<u8> = Vec::new();
 
-            while i < count && PackingUtils::is_instance_dirty(i, attributes, components) {
+            while i < count && PackingUtils::is_instance_dirty(i, vertices, components) {
                 for comp in components {
-                    comp.write_to(i, attributes, &mut data_span);
+                    comp.write_to(i, vertices, &mut data_span);
                 }
 
-                PackingUtils::mark_instance_clean(i, attributes);
+                PackingUtils::mark_instance_clean(i, vertices);
                 i+=1;
             }
 
@@ -269,15 +277,18 @@ impl PackingUtils {
     }
 
     /// check if an instances attributes are dirty (changed this frame)
-    fn is_instance_dirty(idx: usize, attributes: &DynHashMap, components: &[Box<dyn VertexAttribute>]) -> bool {
+    fn is_instance_dirty(idx: usize, instances: &VertexData, components: &[Box<dyn VertexAttribute>]) -> bool {
         components.iter().any(|comp| {
-            attributes.is_dirty(comp.name(), idx)
+            match instances.attributes.get(comp.name()) {
+                Some(attr_vec) => attr_vec.is_dirty(idx),
+                None => false
+            }
         })
     }
 
     /// mark the attributes of an instance as clean
-    fn mark_instance_clean(idx: usize, attributes: &DynHashMap) {
-        attributes.map.iter().for_each(|(_, attr)| {
+    fn mark_instance_clean(idx: usize, instances: &VertexData) {
+        instances.attributes.iter().for_each(|(_, attr)| {
             attr.mark_clean(idx);
         });
     }

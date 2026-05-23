@@ -5,30 +5,50 @@ const PI: f32 = 3.1415;
 use glam::{Quat, Vec3, Vec4};
 
 use crate::{game::particle::{ParticleConfig, ParticleEmitter2D, Variance}, graphics::{
-    animation::{SyncedAnimatedSprite, SyncedAnimatedSpriteConfig}, camera::{Camera, Camera2D}, entity::{Entity, RenderInfo}, geometry::{Geometry, PositionAttribute, UVAttribute}, init_state::StateInit, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, renderer::Renderer, shape_factory::Shape2D, traits::{AnimationController, Driver}, transform::Transform
+    animation::{AnimationController, CyclicAnimator, FadeAnimation, FadeMode, TextureAnimation}, camera::{Camera, Camera2D}, entity::{Entity, RenderInfo}, geometry::{Geometry, PositionAttribute, UVAttribute}, init_state::StateInit, instance::{InstanceGroup, TintAttribute, TransformAttribute, UVBoundsAttribute}, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, renderer::Renderer, shape_factory::Shape2D, traits::Driver, transform::Transform
 }};
 
 pub struct Game {
     particles: ParticleEmitter2D,
-    flag: SyncedAnimatedSprite,
+    flags: Entity,
+    animator: CyclicAnimator,
     camera: Camera2D,
 }
 
 impl Game {
     pub fn new() -> Self {
         let camera = Camera2D::new("camera-2d");
-        
-        let flag = SyncedAnimatedSprite::from_config(SyncedAnimatedSpriteConfig {
-            path: "./assets/flag.png",
-            frame_times: vec![0.05, 0.20, 0.10],
-            transforms: vec![
-                Transform::new(Vec3 { x: -0.5, y: 0.5, z: 1.0}, Quat::IDENTITY, Vec3 { x: 0.15, y: 0.15, z: 1.0}),
-                Transform::new(Vec3 { x: 0.5, y: 0.5, z: 1.0}, Quat::IDENTITY, Vec3 { x: 0.15, y: 0.15, z: 1.0}),
-                Transform::new(Vec3 { x: 0.5, y: -0.5, z: 1.0}, Quat::IDENTITY, Vec3 { x: 0.15, y: 0.15, z: 1.0}),
-                Transform::new(Vec3 { x: -0.5, y: -0.5, z: 1.0}, Quat::IDENTITY, Vec3 { x: 0.15, y: 0.15, z: 1.0}),
-                ],
-            color: Vec4::new(1.0, 1.0, 0.0, 1.0),
-        });
+
+        let transforms = vec![
+            Transform::new(Vec3 { x: -0.5, y: 0.5, z: 1.0}, Quat::IDENTITY, Vec3 { x: 0.15, y: 0.15, z: 1.0}),
+            Transform::new(Vec3 { x: 0.5, y: 0.5, z: 1.0}, Quat::IDENTITY, Vec3 { x: 0.15, y: 0.15, z: 1.0}),
+            Transform::new(Vec3 { x: 0.5, y: -0.5, z: 1.0}, Quat::IDENTITY, Vec3 { x: 0.15, y: 0.15, z: 1.0}),
+            Transform::new(Vec3 { x: -0.5, y: -0.5, z: 1.0}, Quat::IDENTITY, Vec3 { x: 0.15, y: 0.15, z: 1.0}),
+        ];
+        let uv_bounds = vec![Vec4::new(0.0, 0.0, 1.0, 1.0); transforms.len()];
+        let colors = vec![Vec4::new(1.0, 1.0, 0.0, 1.0); transforms.len()];
+
+        let instances = InstanceGroup::new(transforms.len(), transforms.len())
+            .with_attribute(TransformAttribute, transforms)
+            .with_attribute(TintAttribute, colors)
+            .with_attribute(UVBoundsAttribute, uv_bounds);
+
+        let flags = Entity::from_group(
+            "flags", 
+            Geometry::new(Shape2D::new().square())
+                .with_attribute(PositionAttribute)
+                .with_attribute(UVAttribute),
+            MaterialPreset::TexturedSprite("./assets/flag.png".to_string()).with_label("animated-sprite"), 
+            instances, 
+            RenderInfo { 
+                shader_path: ShaderSpecPreset::AnimatedSprite.path(), 
+                pipeline: RenderPipeline::AnimatedSprite.get(), 
+            }
+        );
+
+        let animator = CyclicAnimator::new(vec![0.15, 0.15, 0.15])
+            .with_animation(TextureAnimation::new(3, 1))
+            .with_animation(FadeAnimation::new(FadeMode::Sinusoidal(0.0), 1.5));
 
         let particles = ParticleEmitter2D::new(ParticleConfig {
             total_particles: 5000,
@@ -43,7 +63,7 @@ impl Game {
             is_one_shot: false
         });
 
-        Self { particles, flag, camera, }
+        Self { particles, flags, animator, camera }
     }
 }
 
@@ -56,8 +76,8 @@ impl Driver for Game {
         
     }
 
-    fn update(&mut self, dt: f32, _et: f32) {
-        self.flag.update(dt);
+    fn update(&mut self, dt: f32, et: f32) {
+        self.animator.animate(&mut self.flags, dt, et);
         // self.particles.update(dt);
     }
 
@@ -67,7 +87,7 @@ impl Driver for Game {
         // renderer.set_bg_color(0.392, 0.584, 0.929);
         renderer.set_camera(&mut self.camera);
 
-        self.flag.render(renderer);
+        renderer.draw(&mut self.flags);
 
         // self.particles.render(renderer);
     }

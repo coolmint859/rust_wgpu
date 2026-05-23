@@ -129,8 +129,8 @@ impl Transform {
         transformed.xyz()
     }
 
-    /// Get a copy of this transform's world matrix
-    pub fn world_matrix(&self) -> glam::Mat4 {
+    /// Update and get a copy of this transform's world matrix
+    pub fn to_updated(&self) -> glam::Mat4 {
         self.world_mat.set(Mat4::from_scale_rotation_translation(self.scale, self.rotation, self.position));
         self.world_mat.get()
     }

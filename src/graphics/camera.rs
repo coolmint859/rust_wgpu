@@ -160,7 +160,7 @@ impl Camera for Camera2D {
     /// update the camera's view-projection matrix
     fn to_updated(&mut self) -> bool {
         if self.is_dirty.get() || self.transform.is_dirty() {
-            let view_mat = self.transform.world_matrix().inverse();
+            let view_mat = self.transform.to_updated().inverse();
 
             let half_width = self.aspect / self.zoom;
             let half_height = 1.0 / self.zoom;
@@ -184,6 +184,6 @@ impl Camera for Camera2D {
     }
 
     fn view_matrix(&self) -> Mat4 {
-        self.transform.world_matrix().inverse()
+        self.transform.to_updated().inverse()
     }
 }
