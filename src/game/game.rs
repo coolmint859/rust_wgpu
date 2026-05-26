@@ -4,14 +4,14 @@ const PI: f32 = 3.1415;
 
 use glam::{Quat, Vec3, Vec4};
 
-use crate::{game::particle::{ParticleConfig, ParticleEmitter2D, Variance}, graphics::{
-    animation::{AnimationController, CyclicAnimator, FadeAnimation, FadeMode, TextureAnimation}, camera::{Camera, Camera2D}, entity::{Entity, RenderInfo}, geometry::{Geometry, PositionAttribute, UVAttribute}, init_state::StateInit, instance::{InstanceGroup, TintAttribute, TransformAttribute, UVBoundsAttribute}, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, renderer::Renderer, shape_factory::Shape2D, traits::Driver, transform::Transform
+use crate::{game::{animation::{AnimationController, CyclicAnimator, FadeAnimation, FadeMode, TextureAnimation}, particle::{FadeBehavior, ParticleConfig, ParticleEmitter2D, RadialKinematicsBehavior, Variance}}, graphics::{
+    camera::{Camera, Camera2D}, entity::{Entity, RenderInfo}, geometry::{Geometry, PositionAttribute, UVAttribute}, init_state::StateInit, instance::{InstanceGroup, TintAttribute, TransformAttribute, UVBoundsAttribute}, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, renderer::Renderer, shape_factory::Shape2D, traits::{Driver, GameSystem}, transform::Transform
 }};
 
 pub struct Game {
-    particles: ParticleEmitter2D,
     flags: Entity,
-    animator: CyclicAnimator,
+    flag_animator: CyclicAnimator,
+    particles: ParticleEmitter2D,
     camera: Camera2D,
 }
 
@@ -20,10 +20,10 @@ impl Game {
         let camera = Camera2D::new("camera-2d");
 
         let transforms = vec![
-            Transform::new(Vec3 { x: -0.5, y: 0.5, z: 1.0}, Quat::IDENTITY, Vec3 { x: 0.15, y: 0.15, z: 1.0}),
-            Transform::new(Vec3 { x: 0.5, y: 0.5, z: 1.0}, Quat::IDENTITY, Vec3 { x: 0.15, y: 0.15, z: 1.0}),
-            Transform::new(Vec3 { x: 0.5, y: -0.5, z: 1.0}, Quat::IDENTITY, Vec3 { x: 0.15, y: 0.15, z: 1.0}),
-            Transform::new(Vec3 { x: -0.5, y: -0.5, z: 1.0}, Quat::IDENTITY, Vec3 { x: 0.15, y: 0.15, z: 1.0}),
+            Transform::new(Vec3 { x: -0.5, y: 0.5, z: 0.0}, Quat::IDENTITY, Vec3 { x: 0.15, y: 0.15, z: 1.0}),
+            Transform::new(Vec3 { x: 0.5, y: 0.5, z: 0.0}, Quat::IDENTITY, Vec3 { x: 0.15, y: 0.15, z: 1.0}),
+            Transform::new(Vec3 { x: 0.5, y: -0.5, z: 0.0}, Quat::IDENTITY, Vec3 { x: 0.15, y: 0.15, z: 1.0}),
+            Transform::new(Vec3 { x: -0.5, y: -0.5, z: 0.0}, Quat::IDENTITY, Vec3 { x: 0.15, y: 0.15, z: 1.0}),
         ];
         let uv_bounds = vec![Vec4::new(0.0, 0.0, 1.0, 1.0); transforms.len()];
         let colors = vec![Vec4::new(1.0, 1.0, 0.0, 1.0); transforms.len()];
@@ -46,24 +46,28 @@ impl Game {
             }
         );
 
-        let animator = CyclicAnimator::new(vec![0.15, 0.15, 0.15])
+        let flag_animator = CyclicAnimator::new(vec![0.15, 0.15, 0.15])
             .with_animation(TextureAnimation::new(3, 1))
             .with_animation(FadeAnimation::new(FadeMode::Sinusoidal(0.0), 1.5));
 
-        let particles = ParticleEmitter2D::new(ParticleConfig {
+        let mut emitter = ParticleEmitter2D::new(ParticleConfig {
             total_particles: 5000,
-            spawn_cap: 500,
-            emit_center: Vec3 { x: 0.0, y: 0.0, z: 0.0 },
-            size: Variance { mean: 0.02, std_dev: 0.001 },
-            speed: Variance { mean: 0.5, std_dev: 0.2 },
-            lifespan: Variance { mean: 2.00, std_dev: 0.2 },
-            rotation: Variance { mean: 0.3, std_dev: 0.001 },
-            spin: Variance { mean: 5.0, std_dev: 2.0 },
+            emit_cap: 500,
+            sizes: Variance { mean: 0.02, std_dev: 0.001 },
+            lifespans: Variance { mean: 2.0, std_dev: 0.2 },
             texture_path: "./assets/fire.png",
             is_one_shot: false
         });
 
-        Self { particles, flags, animator, camera }
+        emitter.add_behavior(RadialKinematicsBehavior::new(
+            Variance { mean: 0.5, std_dev: 0.02 },
+            Variance { mean: 5.0, std_dev: 2.0 },
+            Vec3::new(0.0, 0.0, 1.0),
+        ));
+
+        emitter.add_behavior(FadeBehavior::new(FadeMode::Decrease));
+
+        Self { particles: emitter, flags, flag_animator, camera }
     }
 }
 
@@ -77,7 +81,8 @@ impl Driver for Game {
     }
 
     fn update(&mut self, dt: f32, et: f32) {
-        self.animator.animate(&mut self.flags, dt, et);
+        self.flag_animator.animate(&mut self.flags, dt, et);
+        self.particles.update(dt, et);
         // self.particles.update(dt);
     }
 
@@ -89,6 +94,6 @@ impl Driver for Game {
 
         renderer.draw(&mut self.flags);
 
-        // self.particles.render(renderer);
+        self.particles.render(renderer);
     }
 } 

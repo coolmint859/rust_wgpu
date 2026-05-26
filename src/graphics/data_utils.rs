@@ -1,6 +1,5 @@
 #![allow(dead_code)]
-use std::{any::Any, cell::Cell, ops::{Deref, DerefMut}};
-
+use std::{any::Any, cell::Cell, collections::HashMap, ops::{Deref, DerefMut}};
 use glam::*;
 
 use crate::graphics::{vertex::{VertexAttribute, VertexData, VertexLayoutBuilder}, wpgu_context::ResourceUpdate};
@@ -12,9 +11,11 @@ pub trait DynVec: Any {
     /// Swap the last element in the vector with the one at the index, and then remove the last element.
     fn swap_remove(&mut self, idx: usize);
     /// Clone the values of the vector into a new one.
-    fn clone_box(&self) -> Box<dyn DynDirtyVec>;
+    fn clone_box(&self) -> Box<dyn DynVec>;
     /// Append data from another vector into this one.
-    fn append_from(&mut self, other: &dyn DynDirtyVec);
+    fn append_from(&mut self, other: &dyn DynVec);
+    /// Get the length of the vector
+    fn len(&self) -> usize;
 
     /// Convert the data store into it's Any type
     fn as_any_ref<'a>(&'a self) -> &'a dyn Any;
@@ -31,6 +32,100 @@ impl dyn DynVec {
     /// Downcast this dynamic vector into a mutable reference of the concrete vector type
     pub fn downcast_mut<T: 'static>(&mut self) -> Option<&mut Vec<T>> {
         self.as_any_mut().downcast_mut::<Vec<T>>()
+    }
+}
+
+impl<T: Clone + Default + 'static> DynVec for Vec<T> {
+    fn as_any_mut<'a>(&'a mut self) -> &'a mut dyn Any { self }
+    fn as_any_ref<'a>(&'a self) -> &'a dyn Any { self }
+
+    fn swap_remove(&mut self, idx: usize) {
+        self.swap_remove(idx);
+    }
+
+    fn push_default(&mut self) {
+        self.push(T::default())
+    }
+
+    fn clone_box(&self) -> Box<dyn DynVec> {
+        Box::new(self.clone())
+    }
+
+    fn len(&self) -> usize {
+        return self.len()
+    }
+
+    fn append_from(&mut self, other: &dyn DynVec) {
+        if let Some(other_vec) = other.as_any_ref().downcast_ref::<Vec<T>>() {
+            for source in other_vec.iter() {
+                self.push(source.clone());
+            }
+        } else {
+            panic!("Expected 'other' to contain values with the same type as 'self'");
+        }
+    }
+}
+
+/// A homogenous collection of generic data stored in DynVectors keyed by a string.
+pub struct DataTable {
+    pub properties: HashMap<String, Box<dyn DynVec>>,
+    pub capacity: usize,
+}
+
+impl DataTable {
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            properties: HashMap::new(),
+            capacity,
+        }
+    }
+
+    /// add a property to this data table
+    pub fn with_property<T: Clone + Default + 'static>(mut self, key: &str) -> Self {
+        self.add_property::<T>(key);
+        self
+    }
+
+    /// add a property to this data table
+    pub fn add_property<T: Clone + Default + 'static>(&mut self, key: &str) {
+        if !self.properties.contains_key(key) {
+            let property = Vec::<T>::with_capacity(self.capacity);
+            self.properties.insert(key.to_string(), Box::new(property));
+        }
+    }
+
+    /// Get a reference to the concrete data associated with the provided key, if exists
+    pub fn get_property<T: 'static>(&self, key: &str) -> Option<&Vec<T>> {
+        Some(self.properties.get(key)?.downcast_ref::<T>()?)
+    }
+
+    /// Get a mutable reference to the concrete data associated with the provided key, if exists
+    pub fn get_property_mut<T: 'static>(&mut self, key: &str) -> Option<&mut Vec<T>> {
+        Some(self.properties.get_mut(key)?.downcast_mut::<T>()?)
+    }
+
+    /// Append data to an existing property in the table.
+    pub fn push_to<T: 'static>(&mut self, key: &str, data: T) -> Result<(), String> {
+        let capacity = self.capacity;
+        if let Some(property) = self.get_property_mut::<T>(key) {
+            if property.len() >= capacity { 
+                return Err(format!("Table is at max capacity, cannot insert data into stream '{key}'"));
+            }
+
+            property.push(data);
+            return Ok(());
+        }
+
+        return Err(format!("Expected stream with key '{key}', but none was found."));
+    }
+
+    /// swap remove elements from all properties in the table at the specified index
+    pub fn swap_remove_all(&mut self, idx: usize) {
+        for (_, property) in self.properties.iter_mut() {
+            if idx > property.len() { continue; } // skip vectors which are too small
+
+            property.swap_remove(idx);
+        }
     }
 }
 

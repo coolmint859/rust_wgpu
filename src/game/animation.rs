@@ -2,7 +2,7 @@
 
 use glam::Vec4;
 
-use crate::graphics::{ entity::{self, Entity, RenderInfo}, geometry::{Geometry, PositionAttribute, UVAttribute}, instance::{InstanceGroup, TintAttribute, TransformAttribute, UVBoundsAttribute}, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, renderer::Renderer, shape_factory::Shape2D, transform::Transform, vertex::VertexData};
+use crate::graphics::{ entity::Entity, instance::{TintAttribute, UVBoundsAttribute}, vertex::VertexData};
 
 /// Represents animation behaviors on an entity orchestrated by an AnimationController
 pub trait Animation {
@@ -20,6 +20,7 @@ pub trait AnimationController {
     fn animate(&mut self, entity: &mut Entity, dt: f32, et: f32);
 }
 
+/// An animator that animates entities in a loop.
 pub struct CyclicAnimator {
     /// the set of associated animations
     animations: Vec<Box<dyn Animation>>,
@@ -126,6 +127,7 @@ impl Animation for TextureAnimation {
     }
 }
 
+/// Determines how a entity fades
 pub enum FadeMode {
     /// Linearly increase the alpha value to 1
     Increase,
@@ -158,7 +160,7 @@ impl FadeMode {
     }
 }
 
-/// Fades an entity according a mode for a specified duration
+/// Fades an entity according to a mode for a specified duration
 pub struct FadeAnimation {
     mode: FadeMode,
     duration: f32,

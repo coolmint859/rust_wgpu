@@ -17,3 +17,12 @@ pub trait Driver {
     /// Called at the end of each frame before drawing commands are sent to the GPU.
     fn render(&mut self, renderer: &mut Renderer, aspect: f32);
 }
+
+/// Represents systems that control game logic and render owned entities
+pub trait GameSystem {
+    /// update the game system
+    fn update(&mut self, dt: f32, et: f32);
+
+    /// render the game system's entities
+    fn render(&mut self, renderer: &mut Renderer);
+}

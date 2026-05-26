@@ -21,41 +21,23 @@ pub struct Entity {
 }
 
 impl Entity {
+    /// Create an entity with a single instance
     pub fn new(label: &str, geometry: Geometry, material: Material, transform: Transform, render_info: RenderInfo) -> Self {
-        let id = ENTITY_COUNTER.fetch_add(1, Ordering::SeqCst);
-
         let instances = InstanceGroup::new(1, 1)
             .with_label(label)
             .with_attribute(TransformAttribute, vec![transform])
             .with_attribute(TintAttribute, vec![glam::Vec4::ONE]);
 
-        Self { 
-            id, 
-            label: label.to_string(),
-            geometry, 
-            material, 
-            instances,
-            render_info 
-        }
+        Entity::from_group(label, geometry, material, instances, render_info)
     }
 
     /// Create an entity with multiple instances (just transforms)
     pub fn new_instanced(label: &str, geometry: Geometry, material: Material, instances: Vec<Transform>, render_info: RenderInfo) -> Self {
-        let id = ENTITY_COUNTER.fetch_add(1, Ordering::SeqCst);
-        let capacity = instances.capacity();
-        
-        let instance_group = InstanceGroup::new(instances.len(), capacity)
+        let instances = InstanceGroup::new(instances.len(), instances.capacity())
             .with_label(label)
             .with_attribute(TransformAttribute, instances);
         
-        Self { 
-            id, 
-            label: label.to_string(),
-            geometry, 
-            material, 
-            instances: instance_group,
-            render_info 
-        }
+        Entity::from_group(label, geometry, material, instances, render_info)
     }
 
     /// Create an entity with a custom instance group

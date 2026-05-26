@@ -89,6 +89,33 @@ impl VertexData {
         Some(&mut attributes.inner)
     }
 
+    /// push a new vertex with default values into the internal map. 
+    pub fn push_default(&mut self) -> Result<(), String>{
+        if self.count < self.capacity {
+            for (_, attr) in self. attributes.iter_mut() {
+                attr.push_default();
+            }
+
+            self.count += 1;
+
+            return Ok(());
+        }
+
+        return Err("Map is currently at max capacity, unable to insert vertex".to_string());
+    }
+
+    /// swap remove a vertex from the attribute map
+    pub fn swap_remove(&mut self, idx: usize) {
+        if idx >= self.count { return; }
+
+        for (_, attr) in self.attributes.iter_mut() {
+            attr.swap_remove(idx);
+            attr.mark_dirty(idx);
+        }
+
+        self.count -= 1;
+    }
+
     /// add indices for the vertex data (mostly used for geometry)
     pub fn with_indices(mut self, indices: Vec<u32>) -> Self {
         self.indices = Some(indices);
