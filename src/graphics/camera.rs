@@ -2,7 +2,7 @@
 use std::cell::Cell;
 use glam::{Mat4, Quat, Vec2, Vec3};
 
-use crate::graphics::{data_utils::DataView, wpgu_context::{ResourceBinding, ResourceID, ResourceScope, ResourceType}};
+use crate::graphics::{data_table::DataView, wpgu_context::{ResourceBinding, ResourceID, ResourceScope, ResourceType}};
 
 use super::{
     bind_group::*, 

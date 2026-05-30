@@ -1,7 +1,7 @@
 #![allow(dead_code)]
-use std::{collections::HashMap, ops::Range, sync::Arc};
+use std::{ops::Range, sync::Arc};
 
-use crate::graphics::data_utils::{DataView, DynDirtyVec};
+use crate::graphics::{data_table::DataTable};
 
 use super::handler::ResourceBuilder;
 
@@ -23,104 +23,17 @@ pub const TINT_LOC: u32 = 12;
 pub const UV_BOUNDS_LOC: u32 = 13;
 
 /// represents attributes that can be packed into a vertex/instance buffer
-pub trait VertexAttribute {
+pub trait VertexAttribute: std::fmt::Debug {
     /// the name of the attribute the component represents
     fn name(&self) -> &'static str;
-
     /// the attribute location in the shader
     fn location(&self) -> u32;
-
     /// The format of the attribute data in the shader
     fn format(&self) -> wgpu::VertexFormat;
-
     /// The number of vertex attributes the component requires (default is 1)
     fn attr_count(&self) -> u32 { 1 }
-
     /// Writes data at the specified index to a byte vector.
-    fn write_to(&self, idx: usize, vertices: &VertexData, buffer: &mut Vec<u8>);
-}
-
-/// A homogenous collection of vertex attributes stored in DynDirtyVectors
-pub struct VertexData {
-    pub label: String,
-    pub attributes: HashMap<String, Box<dyn DynDirtyVec>>,
-    pub count: usize,
-    pub capacity: usize,
-    pub indices: Option<Vec<u32>>
-}
-
-impl VertexData {
-    pub fn new(count: usize, capacity: usize) -> Self {
-        Self {
-            label: "vertex_data".to_string(),
-            attributes: HashMap::new(),
-            count,
-            capacity,
-            indices: None,
-        }
-    }
-
-    /// Set the label for this vertex data
-    pub fn with_label(mut self, label: &str) -> Self {
-        self.label = label.to_string();
-        self
-    }
-
-    /// add an attribute to this set of vertex data
-    pub fn with_attribute(mut self, key: &str, data: impl DynDirtyVec) -> Self {
-        self.attributes.insert(key.to_string(), Box::new(data));
-        self
-    }
-
-    /// add an attribute to this set of vertex data
-    pub fn add_attribute(&mut self, key: &str, data: impl DynDirtyVec) {
-        self.attributes.insert(key.to_string(), Box::new(data));
-    }
-
-    /// Get a reference to the concrete attribute data associated with the provided attribute, if exists
-    pub fn get_attribute<T: 'static>(&self, attribute: impl VertexAttribute + 'static) -> Option<&Vec<DataView<T>>> {
-        let attributes = self.attributes.get(attribute.name())?.downcast_ref::<T>()?;
-        Some(&attributes.inner)
-    }
-
-    /// Get a mutable reference to the concrete attribute data associated with the provided attribute, if exists
-    pub fn get_attribute_mut<T: 'static>(&mut self, attribute: impl VertexAttribute + 'static) -> Option<&mut Vec<DataView<T>>> {
-        let attributes = self.attributes.get_mut(attribute.name())?.downcast_mut::<T>()?;
-        Some(&mut attributes.inner)
-    }
-
-    /// push a new vertex with default values into the internal map. 
-    pub fn push_default(&mut self) -> Result<(), String>{
-        if self.count < self.capacity {
-            for (_, attr) in self. attributes.iter_mut() {
-                attr.push_default();
-            }
-
-            self.count += 1;
-
-            return Ok(());
-        }
-
-        return Err("Map is currently at max capacity, unable to insert vertex".to_string());
-    }
-
-    /// swap remove a vertex from the attribute map
-    pub fn swap_remove(&mut self, idx: usize) {
-        if idx >= self.count { return; }
-
-        for (_, attr) in self.attributes.iter_mut() {
-            attr.swap_remove(idx);
-            attr.mark_dirty(idx);
-        }
-
-        self.count -= 1;
-    }
-
-    /// add indices for the vertex data (mostly used for geometry)
-    pub fn with_indices(mut self, indices: Vec<u32>) -> Self {
-        self.indices = Some(indices);
-        self
-    }
+    fn write_to(&self, idx: usize, vertices: &DataTable, buffer: &mut Vec<u8>);
 }
 
 #[derive(Clone, Hash, Eq, PartialEq, Debug)]

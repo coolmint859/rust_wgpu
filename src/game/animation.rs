@@ -2,7 +2,7 @@
 
 use glam::Vec4;
 
-use crate::graphics::{ entity::Entity, instance::{TintAttribute, UVBoundsAttribute}, vertex::VertexData};
+use crate::graphics::{ data_table::{DataTable, DirtyVec}, entity::Entity, instance::{TINT_ATTR, UV_BOUNDS_ATTR}};
 
 /// Represents animation behaviors on an entity orchestrated by an AnimationController
 pub trait Animation {
@@ -11,7 +11,7 @@ pub trait Animation {
     /// * 'instances' - the set of instance data to update based on the animation
     /// * 'curr_frame' - the current animation frame
     /// * 'et' - the total elapsed time
-    fn update(&mut self, instances: &mut VertexData, curr_frame: usize, et: f32);
+    fn update(&mut self, instances: &mut DataTable, curr_frame: usize, et: f32);
 }
 
 /// Represents systems that control animated entities
@@ -115,12 +115,12 @@ impl TextureAnimation {
 }
 
 impl Animation for TextureAnimation {
-    fn update(&mut self, instances: &mut VertexData, curr_frame: usize, _et: f32) {
+    fn update(&mut self, instances: &mut DataTable, curr_frame: usize, _et: f32) {
         if self.last_frame == curr_frame { return; }
         self.last_frame = curr_frame;
 
-        if let Some(uv_bounds) = instances.get_attribute_mut::<Vec4>(UVBoundsAttribute) {
-            for bounds in uv_bounds.iter_mut() {
+        if let Some(uv_bounds) = instances.get_property_mut::<DirtyVec<Vec4>>(UV_BOUNDS_ATTR) {
+            for bounds in uv_bounds.as_vec_mut().iter_mut() {
                 bounds.set(*self.sheet.get(self.last_frame));
             }
         }
@@ -173,11 +173,11 @@ impl FadeAnimation {
 }
 
 impl Animation for FadeAnimation {
-    fn update(&mut self, instances: &mut VertexData, _curr_frame: usize, et: f32) {
+    fn update(&mut self, instances: &mut DataTable, _curr_frame: usize, et: f32) {
         let alpha = self.mode.get_alpha(et, self.duration);
 
-        if let Some(tints) = instances.get_attribute_mut::<Vec4>(TintAttribute) {
-            for tint in tints.iter_mut() {
+        if let Some(tints) = instances.get_property_mut::<DirtyVec<Vec4>>(TINT_ATTR) {
+            for tint in tints.as_vec_mut().iter_mut() {
                 tint.w = alpha;
             }
         }

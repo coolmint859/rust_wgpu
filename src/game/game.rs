@@ -4,14 +4,14 @@ const PI: f32 = 3.1415;
 
 use glam::{Quat, Vec3, Vec4};
 
-use crate::{game::{animation::{AnimationController, CyclicAnimator, FadeAnimation, FadeMode, TextureAnimation}, particle::{FadeBehavior, ParticleConfig, ParticleEmitter2D, RadialKinematicsBehavior, Variance}}, graphics::{
+use crate::{game::{animation::{AnimationController, CyclicAnimator, FadeAnimation, FadeMode, TextureAnimation}, particle::{FadeBehavior, ParticleConfig, ParticleEmitter, RadialSpawner2D, Variance}}, graphics::{
     camera::{Camera, Camera2D}, entity::{Entity, RenderInfo}, geometry::{Geometry, PositionAttribute, UVAttribute}, init_state::StateInit, instance::{InstanceGroup, TintAttribute, TransformAttribute, UVBoundsAttribute}, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, renderer::Renderer, shape_factory::Shape2D, traits::{Driver, GameSystem}, transform::Transform
 }};
 
 pub struct Game {
     flags: Entity,
     flag_animator: CyclicAnimator,
-    particles: ParticleEmitter2D,
+    particles: ParticleEmitter,
     camera: Camera2D,
 }
 
@@ -50,22 +50,24 @@ impl Game {
             .with_animation(TextureAnimation::new(3, 1))
             .with_animation(FadeAnimation::new(FadeMode::Sinusoidal(0.0), 1.5));
 
-        let mut emitter = ParticleEmitter2D::new(ParticleConfig {
+        let particle_spawner = RadialSpawner2D::new(
+            Variance { mean: 0.5, std_dev: 0.02 },
+            Variance { mean: 5.0, std_dev: 2.0 },
+            Variance { mean: 0.03, std_dev: 0.01 },
+            Vec3::new(0.0, 0.0, 1.0),
+        );
+
+        let particle_config = ParticleConfig {
             total_particles: 5000,
-            emit_cap: 500,
-            sizes: Variance { mean: 0.02, std_dev: 0.001 },
+            emit_cap: 20,
+            spawner: Box::new(particle_spawner),
             lifespans: Variance { mean: 2.0, std_dev: 0.2 },
             texture_path: "./assets/fire.png",
             is_one_shot: false
-        });
+        };
 
-        emitter.add_behavior(RadialKinematicsBehavior::new(
-            Variance { mean: 0.5, std_dev: 0.02 },
-            Variance { mean: 5.0, std_dev: 2.0 },
-            Vec3::new(0.0, 0.0, 1.0),
-        ));
-
-        emitter.add_behavior(FadeBehavior::new(FadeMode::Decrease));
+        let emitter = ParticleEmitter::from_config(particle_config)
+            .with_behavior(FadeBehavior::new(FadeMode::Decrease));
 
         Self { particles: emitter, flags, flag_animator, camera }
     }
@@ -83,7 +85,6 @@ impl Driver for Game {
     fn update(&mut self, dt: f32, et: f32) {
         self.flag_animator.animate(&mut self.flags, dt, et);
         self.particles.update(dt, et);
-        // self.particles.update(dt);
     }
 
     fn render(&mut self, renderer: &mut Renderer, aspect: f32) {

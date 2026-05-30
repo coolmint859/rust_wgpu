@@ -18,4 +18,5 @@ pub mod shape_factory;
 pub mod geometry;
 pub mod shader;
 pub mod instance;
-pub mod data_utils;
+pub mod packing_utils;
+pub mod data_table;
