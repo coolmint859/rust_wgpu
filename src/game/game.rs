@@ -4,14 +4,14 @@ const PI: f32 = 3.1415;
 
 use glam::{Quat, Vec3, Vec4};
 
-use crate::{game::{animation::{AnimationController, CyclicAnimator, FadeAnimation, FadeMode, TextureAnimation}, particle::{FadeBehavior, ParticleConfig, ParticleEmitter, RadialSpawner2D, Variance}}, graphics::{
+use crate::{game::{animation::{AnimationController, CyclicAnimator, FadeAnimation, FadeMode, TextureAnimation}, particle::{FadeBehavior, ParticleConfig, ParticleEmitter, PointSpawner2D, RadialKinematicsBehavior, Variance}}, graphics::{
     camera::{Camera, Camera2D}, entity::{Entity, RenderInfo}, geometry::{Geometry, PositionAttribute, UVAttribute}, init_state::StateInit, instance::{InstanceGroup, TintAttribute, TransformAttribute, UVBoundsAttribute}, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, renderer::Renderer, shape_factory::Shape2D, traits::{Driver, GameSystem}, transform::Transform
 }};
 
 pub struct Game {
     flags: Entity,
     flag_animator: CyclicAnimator,
-    particles: ParticleEmitter,
+    particles: ParticleEmitter<PointSpawner2D>,
     camera: Camera2D,
 }
 
@@ -50,23 +50,23 @@ impl Game {
             .with_animation(TextureAnimation::new(3, 1))
             .with_animation(FadeAnimation::new(FadeMode::Sinusoidal(0.0), 1.5));
 
-        let particle_spawner = RadialSpawner2D::new(
-            Variance { mean: 0.5, std_dev: 0.02 },
-            Variance { mean: 5.0, std_dev: 2.0 },
-            Variance { mean: 0.03, std_dev: 0.01 },
+        let lifecycle = PointSpawner2D::new(
+            Variance { mean: 1.5, std_dev: 0.08 },
+            Variance { mean: 0.01, std_dev: 0.001 },
             Vec3::new(0.0, 0.0, 1.0),
         );
 
         let particle_config = ParticleConfig {
             total_particles: 5000,
             emit_cap: 20,
-            spawner: Box::new(particle_spawner),
-            lifespans: Variance { mean: 2.0, std_dev: 0.2 },
-            texture_path: "./assets/fire.png",
             is_one_shot: false
         };
 
-        let emitter = ParticleEmitter::from_config(particle_config)
+        let emitter = ParticleEmitter::textured("./assets/fire.png", particle_config, lifecycle)
+            .with_behavior(RadialKinematicsBehavior::new(
+                Variance { mean: 0.6, std_dev: 0.05 },
+                Variance { mean: 1.0, std_dev: 0.1 }
+            ))
             .with_behavior(FadeBehavior::new(FadeMode::Decrease));
 
         Self { particles: emitter, flags, flag_animator, camera }

@@ -24,6 +24,8 @@ pub trait DynVec: Any {
     fn swap_remove(&mut self, idx: usize);
     /// Clone the values of the vector into a new one.
     fn clone_box(&self) -> Box<dyn DynVec>;
+    /// Create a new empty vector
+    fn clone_empty(&self) -> Box<dyn DynVec>;
     /// Append data from another vector into this one.
     fn append_from(&mut self, other: &dyn DynVec);
     /// Get the length of the vector
@@ -61,6 +63,8 @@ impl<T: Clone + Default + 'static> DynVec for Vec<T> {
     fn push_default(&mut self) { self.push(T::default()); }
 
     fn clone_box(&self) -> Box<dyn DynVec> { Box::new(self.clone()) }
+
+    fn clone_empty(&self) -> Box<dyn DynVec> { Box::new(Vec::<T>::new()) }
 
     fn len(&self) -> usize { self.len() }
 
@@ -137,6 +141,7 @@ impl<T> DerefMut for DataView<T> {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct DirtyVec<T> {
     inner: Vec<DataView<T>>,
 }
@@ -180,6 +185,10 @@ impl<T: Default + Clone + 'static> DynVec for DirtyVec<T> {
 
     fn clone_box(&self) -> Box<dyn DynVec> {
         Box::new(Self { inner: self.inner.clone() })
+    }
+
+    fn clone_empty(&self) -> Box<dyn DynVec> {
+        Box::new(Self { inner: Vec::<DataView<T>>::new() })
     }
 
     fn swap_remove(&mut self, idx: usize) {

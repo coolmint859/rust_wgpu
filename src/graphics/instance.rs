@@ -19,34 +19,50 @@ impl InstanceTemplate {
         Self { data: HashMap::new() }
     }
 
+    /// Get the known attributes of this template
+    pub fn attributes(&self) -> Vec<String> {
+        self.data.keys().cloned().collect()
+    }
+
+    /// Add a default value for all known attributes in the template
+    pub fn with_defaults(mut self) -> Self {
+        for vec in self.data.values_mut() {
+            vec.push_default();
+        }
+        self
+    }
+
     /// Add a transform attribute to this instance
     pub fn with_transform(self, transform: Transform) -> Self {
-        self.with_attribute(TransformAttribute, transform)
+        self.with_attribute(TRANSFORM_ATTR, transform)
     }
 
     /// Update the transform attribute for this instance
     pub fn set_transform(&mut self, transform: Transform) {
-        self.set_attribute(TransformAttribute, transform);
+        self.set_attribute(TRANSFORM_ATTR, transform);
     }
 
     /// Add a component to this instance template
-    pub fn with_attribute<V, D>(mut self, attributes: V, data: D) -> Self 
-    where 
-        V: VertexAttribute + 'static, 
-        D: Clone + Default + 'static
+    pub fn with_attribute<D>(mut self, attribute: &str, data: D) -> Self 
+    where D: Clone + Default + 'static
     {
-        self.set_attribute(attributes, data);
+        self.set_attribute(attribute, data);
         self
     }
 
     /// Set a known component's data on this instance template
-    pub fn set_attribute<V, D>(&mut self, attributes: V, data: D) 
-    where 
-        V: VertexAttribute + 'static, 
-        D: Clone + Default + 'static
+    pub fn set_attribute<D>(&mut self, attribute: &str, data: D) 
+    where D: Clone + Default + 'static
     {
         let vec = DirtyVec::from_vec(vec![data]);
-        self.data.insert(attributes.name().to_string(), Box::new(vec));
+        self.data.insert(attribute.to_string(), Box::new(vec));
+    }
+
+    /// set a known component's data to a new DynVec on this instance template.
+    /// 
+    /// Note: the Implementation must downcast to a DirtyVec<T> for some type T for the template to be valid.
+    pub fn set_attribute_vec(&mut self, attribute: &str, vec: Box<dyn DynVec>) {
+        self.data.insert(attribute.to_string(), vec);
     }
 }
 

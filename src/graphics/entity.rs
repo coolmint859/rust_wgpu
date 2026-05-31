@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use crate::graphics::{geometry::Geometry, instance::{Instance, InstanceGroup, InstanceMut, TintAttribute, TransformAttribute}, material::{Material, UniformBuilder}, render_pipeline::RenderPipelineBuilder, transform::Transform, wpgu_context::{GeometryID, ResourceBinding, ResourceID, ResourceScope, ResourceType, ResourceUpdate}};
+use crate::graphics::{geometry::Geometry, instance::{Instance, InstanceGroup, InstanceMut, InstanceTemplate, TintAttribute, TransformAttribute}, material::{Material, UniformBuilder}, render_pipeline::RenderPipelineBuilder, transform::Transform, wpgu_context::{GeometryID, ResourceBinding, ResourceID, ResourceScope, ResourceType, ResourceUpdate}};
 
 static ENTITY_COUNTER: AtomicU32 = AtomicU32::new(0);
 
@@ -52,6 +52,19 @@ impl Entity {
             instances,
             render_info 
         }
+    }
+
+    /// Get an empty template of this entity's instances.
+    /// 
+    /// This is useful when adding new instances to the entity as it is.
+    pub fn get_template(&self) -> InstanceTemplate {
+        let mut template = InstanceTemplate::new();
+
+        for (attr, dyn_vec) in self.instances.get_instances().properties.iter() {
+            template.set_attribute_vec(&attr, dyn_vec.clone_empty());
+        }
+
+        template
     }
 
     /// Get a reference to the first instance of the entity
