@@ -120,7 +120,7 @@ impl Animation for TextureAnimation {
         self.last_frame = curr_frame;
 
         if let Some(uv_bounds) = instances.get_property_mut::<DirtyVec<Vec4>>(UV_BOUNDS_ATTR) {
-            for bounds in uv_bounds.as_vec_mut().iter_mut() {
+            for bounds in uv_bounds.iter_mut() {
                 bounds.set(*self.sheet.get(self.last_frame));
             }
         }
@@ -177,7 +177,7 @@ impl Animation for FadeAnimation {
         let alpha = self.mode.get_alpha(et, self.duration);
 
         if let Some(tints) = instances.get_property_mut::<DirtyVec<Vec4>>(TINT_ATTR) {
-            for tint in tints.as_vec_mut().iter_mut() {
+            for tint in tints.iter_mut() {
                 tint.w = alpha;
             }
         }

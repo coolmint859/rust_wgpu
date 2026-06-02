@@ -4,14 +4,27 @@ const PI: f32 = 3.1415;
 
 use glam::{Quat, Vec3, Vec4};
 
-use crate::{game::{animation::{AnimationController, CyclicAnimator, FadeAnimation, FadeMode, TextureAnimation}, particle::{FadeBehavior, ParticleConfig, ParticleEmitter, PointSpawner2D, RadialKinematicsBehavior, Variance}}, graphics::{
-    camera::{Camera, Camera2D}, entity::{Entity, RenderInfo}, geometry::{Geometry, PositionAttribute, UVAttribute}, init_state::StateInit, instance::{InstanceGroup, TintAttribute, TransformAttribute, UVBoundsAttribute}, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, renderer::Renderer, shape_factory::Shape2D, traits::{Driver, GameSystem}, transform::Transform
-}};
+use super::{
+    animation::{AnimationController, CyclicAnimator, FadeAnimation, FadeMode, TextureAnimation},
+    particle::{ParticleConfig, ParticleEmitter},
+    particle_systems::*,
+};
+
+use crate::graphics::{
+    camera::{Camera, Camera2D}, 
+    entity::{Entity, RenderInfo}, 
+    geometry::{Geometry, PositionAttribute, UVAttribute}, 
+    init_state::StateInit, instance::{InstanceGroup, TintAttribute, TransformAttribute, UVBoundsAttribute}, 
+    presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, 
+    renderer::Renderer, shape_factory::Shape2D, 
+    traits::{Driver, GameSystem}, 
+    transform::Transform
+};
 
 pub struct Game {
     flags: Entity,
     flag_animator: CyclicAnimator,
-    particles: ParticleEmitter<PointSpawner2D>,
+    particles: ParticleEmitter<PlaneSpawner>,
     camera: Camera2D,
 }
 
@@ -50,26 +63,41 @@ impl Game {
             .with_animation(TextureAnimation::new(3, 1))
             .with_animation(FadeAnimation::new(FadeMode::Sinusoidal(0.0), 1.5));
 
-        let lifecycle = PointSpawner2D::new(
-            Variance { mean: 1.5, std_dev: 0.08 },
-            Variance { mean: 0.01, std_dev: 0.001 },
-            Vec3::new(0.0, 0.0, 1.0),
-        );
+        // let lifecycle = PointSpawner2D::new(
+        //     Variance { mean: 3.0, std_dev: 0.08 },
+        //     Variance { mean: 0.1, std_dev: 0.01 },
+        //     Vec3::new(0.0, 0.0, 1.0),
+        // );
+
+        let lifecycle = PlaneSpawner {
+            emit_width: 5.0,
+            sky_y: 1.2,
+            floor_y: -1.2,
+            max_size: 0.01,
+        };
 
         let particle_config = ParticleConfig {
-            total_particles: 5000,
-            emit_cap: 20,
+            total_particles: 1000,
+            emit_cap: 80,
             is_one_shot: false
         };
 
-        let emitter = ParticleEmitter::textured("./assets/fire.png", particle_config, lifecycle)
-            .with_behavior(RadialKinematicsBehavior::new(
-                Variance { mean: 0.6, std_dev: 0.05 },
-                Variance { mean: 1.0, std_dev: 0.1 }
-            ))
-            .with_behavior(FadeBehavior::new(FadeMode::Decrease));
+        let particles = ParticleEmitter::colored(Vec4::new(0.0, 129.0/255.0, 185.0/255.0, 1.0), particle_config, lifecycle)
+            .with_behavior(WeatherForceBehavior {
+                gravity: -9.8,
+                wind_force: 1.0,
+                terminal_velocity: 3.0,
+                max_delay: 1.5
+            });
 
-        Self { particles: emitter, flags, flag_animator, camera }
+        // let particles = ParticleEmitter::textured("./assets/fire.png", particle_config, lifecycle)
+        //     .with_behavior(RadialKinematicsBehavior::new(
+        //         Variance { mean: 0.3, std_dev: 0.05 },
+        //         Variance { mean: 0.0, std_dev: 0.1 }
+        //     ))
+        //     .with_behavior(FadeBehavior::new(FadeMode::Decrease));
+
+        Self {particles, flags, flag_animator, camera }
     }
 }
 
@@ -91,10 +119,11 @@ impl Driver for Game {
         self.camera.set_aspect_ratio(aspect);
 
         // renderer.set_bg_color(0.392, 0.584, 0.929);
+        renderer.set_bg_color(0.02, 0.04, 0.1);
         renderer.set_camera(&mut self.camera);
 
-        renderer.draw(&mut self.flags);
+        // renderer.draw(&mut self.flags);
 
         self.particles.render(renderer);
     }
-} 
+}

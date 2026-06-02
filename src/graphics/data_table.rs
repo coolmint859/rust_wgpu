@@ -245,24 +245,18 @@ impl<T: Default + Clone + 'static> DirtyVec<T> {
     pub fn get_raw(&self, idx: usize) -> Option<&T> {
         Some(&*self.inner.get(idx)?)
     }
+}
 
-    /// Get a reference to an element in the internal Vec
-    pub fn get(&self, idx: usize) -> Option<&DataView<T>> {
-        self.inner.get(idx)
-    }
+impl<T: Clone + Default + 'static> Deref for DirtyVec<T> {
+    type Target = Vec<DataView<T>>;
 
-    /// Get a mutable reference to an element in the internal Vec
-    pub fn get_mut(&mut self, idx: usize) -> Option<&mut DataView<T>> {
-        self.inner.get_mut(idx)
-    }
-
-    /// Get a reference to this DirtyVec's inner Vec type.
-    pub fn as_vec(&self) -> &Vec<DataView<T>> {
+    fn deref(&self) -> &Self::Target {
         &self.inner
     }
+}
 
-    /// Get a mutable reference to this DirtyVec's inner Vec type
-    pub fn as_vec_mut(&mut self) -> &mut Vec<DataView<T>> {
+impl<T: Clone + Default + 'static> DerefMut for DirtyVec<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.inner
     }
 }
@@ -296,8 +290,11 @@ impl<'a, V: DynVec> Drop for PropertyViewMut<'a, V> {
 /// 
 /// If you need to change the size of the underlying map, use the parent table instead while no proxies are active.
 pub struct DataTableProxy<'a> {
+    /// The raw pointer to the underlying map in the parent data table.
     table_ptr: *mut HashMap<String, Box<dyn DynVec>>,
+    /// The set of rows currently mutably borrowed. This is used to make sure a row is only borrowed once at a given time.
     accessed: RefCell<HashSet<String>>,
+    /// Marker to ensure the underlying table remains alive for as long as the proxy does.
     _lifetime_marker: std::marker::PhantomData<&'a mut DataTable>
 }
 
@@ -309,7 +306,6 @@ impl<'a> DataTableProxy<'a> {
             _lifetime_marker: std::marker::PhantomData,
         }
     }
-
     
     /// Get a reference to the concrete data associated with the provided key, if exists
     pub fn get_property<V: DynVec + 'static>(&'a self, key: &str) -> Option<&'a V> {
@@ -317,7 +313,10 @@ impl<'a> DataTableProxy<'a> {
         table.get(key)?.downcast_ref::<V>()
     }
 
-    /// Get a mutable reference to the concrete data associated with the provided key, if exists
+    /// Get a mutable reference to the concrete data associated with the provided key, if exists.
+    /// 
+    /// Note: Only the first call to this will result in a row for a given key.
+    /// Subsequent calls will result in a None until any previous borrows of that row are dropped.
     pub fn get_property_mut<V: DynVec + 'static>(&'a self, key: &str) -> Option<PropertyViewMut<'a, V>> {
         // prevent double borrowing
         if !self.accessed.borrow_mut().insert(key.to_string()) {
@@ -411,7 +410,7 @@ impl DataTable {
         Some(self.properties.get_mut(key)?.downcast_mut::<V>()?)
     }
 
-    /// Get a mutable proxy for the table
+    /// Get a mutable proxy for the table. This is useful in cases where multiple rows need to be mutably borrowed.
     /// 
     /// Note: Only one proxy can be created at a time. 
     pub fn borrow_mut<'a>(&'a mut self) -> DataTableProxy<'a> {

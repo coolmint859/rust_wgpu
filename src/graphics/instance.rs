@@ -286,18 +286,14 @@ impl InstanceGroup {
         self.count = 0;
     }
 
-    /// Get a reference to the attribute data associated with the provided attribute name, if exists
-    pub fn get_attribute<T: Default + Clone + 'static>(&self, attribute: impl VertexAttribute + 'static) -> Option<&Vec<DataView<T>>> {
-        let dirty_vec = self.instances.get_property::<DirtyVec<T>>(attribute.name())?;
-
-        Some(dirty_vec.as_vec())
+    /// Get a reference to the attribute data associated with the provided attribute, if exists
+    pub fn get_attribute<T: Default + Clone + 'static>(&self, attribute: impl VertexAttribute + 'static) -> Option<&DirtyVec<T>> {
+        Some(self.instances.get_property::<DirtyVec<T>>(attribute.name())?)
     }
 
-    /// Get a mutable reference to the attribute data associated with the provided attribute name, if exists
-    pub fn get_attribute_mut<T: Default + Clone + 'static>(&mut self, attribute: impl VertexAttribute + 'static) -> Option<&mut Vec<DataView<T>>> {
-        let dirty_mut = self.instances.get_property_mut::<DirtyVec<T>>(attribute.name())?;
-
-        Some(dirty_mut.as_vec_mut())
+    /// Get a mutable reference to the attribute data associated with the provided attribute, if exists
+    pub fn get_attribute_mut<T: Default + Clone + 'static>(&mut self, attribute: impl VertexAttribute + 'static) -> Option<&mut DirtyVec<T>> {
+        Some(self.instances.get_property_mut::<DirtyVec<T>>(attribute.name())?)
     }
 
     /// Get a reference to the instance (vertex) data associated with this group
