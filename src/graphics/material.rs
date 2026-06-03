@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use std::{cell::Cell, collections::HashMap, sync::atomic::{ AtomicU32, Ordering }};
 
-use crate::graphics::{bind_group::{BindGroupLayoutBuilder, LayoutBindType, LayoutEntry, LayoutVisibility}, wpgu_context::{ResourceBinding, ResourceType, ResourceUpdate}};
+use crate::graphics::{bind_group::{BindGroupLayoutBuilder, LayoutBindType, LayoutEntry, LayoutVisibility}, font::FontBuilder, wpgu_context::{ResourceBinding, ResourceType, ResourceUpdate}};
 
 use super::{
     buffer::BufferBuilder, 
@@ -14,14 +14,17 @@ static MAT_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 /// Enum representing different component builders
 pub enum UniformBuilder {
-    /// builder that creates a Uniform Buffer
+    /// Builder that creates a uniform buffer
     Buffer(BufferBuilder),
-    /// builder that creates a Uniform Texture
+    /// Builder that creates a standard rgba texture
     Texture(TextureBuilder),
-    /// builder that creates a texture sampler
-    Sampler(SamplerBuilder)
+    /// Builder that creates a font texture
+    Font(FontBuilder),
+    /// Builder that creates a texture sampler
+    Sampler(SamplerBuilder),
 }
 
+/// Represents uniforms stored in a bind group, attached to a material
 pub trait MaterialComponent {
     /// Get the generic key and scope of this resource
     fn get_id(&self) -> ResourceID;
@@ -33,7 +36,7 @@ pub trait MaterialComponent {
     fn get_uniform_builder(&self) -> UniformBuilder;
 
     /// Get this component's updated buffer data, if applicable
-    fn get_updated(&self) -> Option<ResourceUpdate>;
+    fn get_updated(&self) -> Option<ResourceUpdate> { None }
 }
 
 /// A high level description of how a mesh should look when rendered
@@ -136,8 +139,6 @@ pub struct ColorUniform {
 /// A material component that holds a color
 pub struct ColorComponent {
     label: String,
-    bind_slot: u32,
-
     color: [f32; 4],
     is_dirty: Cell<bool>,
 }
@@ -147,15 +148,8 @@ impl ColorComponent {
         Self {
             label: label.to_string(),
             color,
-            bind_slot: 0,
             is_dirty: Cell::new(true),
         }
-    }
-
-    /// Set the bind slot for this component (default is 0)
-    pub fn with_bind_slot(mut self, slot: u32) -> Self {
-        self.bind_slot = slot;
-        self
     }
 
     /// set the color
@@ -193,7 +187,6 @@ impl MaterialComponent for ColorComponent {
             let data = bytemuck::bytes_of(&self.color).to_vec();
             return Some(ResourceUpdate { data, offset: 0 });
         }
-
         None
     }
 }
@@ -202,22 +195,14 @@ impl MaterialComponent for ColorComponent {
 pub struct TextureComponent {
     label: String,
     path: String,
-    bind_slot: u32,
 }
 
 impl TextureComponent {
-    pub fn new(label: &str, path: &str) -> Self {
+    pub fn new(label: &str, path: &str,) -> Self {
         Self {
             label: label.to_string(),
             path: path.to_string(),
-            bind_slot: 0
         }
-    }
-
-    /// Set the bind slot for this component (default is 0)
-    pub fn with_bind_slot(mut self, slot: u32) -> Self {
-        self.bind_slot = slot;
-        self
     }
 }
 
@@ -234,16 +219,47 @@ impl MaterialComponent for TextureComponent {
         (LayoutBindType::Texture, LayoutVisibility::Fragment)
     }
 
-    fn get_updated(&self) -> Option<ResourceUpdate> {
-        None // textures don't have buffers
-    }
-
     fn get_uniform_builder(&self) -> UniformBuilder {
         let builder = TextureBuilder::new()
             .with_label(&self.label)
             .with_img_file(&self.path);
 
         UniformBuilder::Texture(builder)
+    }
+}
+
+/// A material component that holds a font (texture) atlas
+pub struct FontComponent {
+    label: String,
+    path: String,
+}
+
+impl FontComponent {
+    pub fn new(label: &str, path: &str) -> Self {
+        Self {
+            label: label.to_string(),
+            path: path.to_string()
+        }
+    }
+}
+
+impl MaterialComponent for FontComponent {
+    fn get_id(&self) -> ResourceID {
+        ResourceID {
+            key: self.label.clone(),
+            scope: ResourceScope::Global,
+            r_type: ResourceType::Texture
+        }
+    }
+
+    fn get_vis_type(&self) -> (LayoutBindType, LayoutVisibility) {
+        (LayoutBindType::Texture, LayoutVisibility::Fragment)
+    }
+
+    fn get_uniform_builder(&self) -> UniformBuilder {
+        let builder = FontBuilder::new(&self.path);
+
+        UniformBuilder::Font(builder)
     }
 }
 
@@ -269,10 +285,6 @@ impl MaterialComponent for SamplerComponent {
 
     fn get_vis_type(&self) -> (LayoutBindType, LayoutVisibility) {
         (LayoutBindType::Sampler, LayoutVisibility::Fragment)
-    }
-
-    fn get_updated(&self) -> Option<ResourceUpdate> {
-        None // samplers have no buffers
     }
 
     fn get_uniform_builder(&self) -> UniformBuilder {

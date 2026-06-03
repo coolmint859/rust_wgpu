@@ -4,7 +4,7 @@ use winit::window::Window;
 use std::sync::Arc;
 
 use crate::graphics::{
-    bind_group::{BindGroupBuilder, BindGroupContext, BindGroupLayoutBuilder, BindGroupResource}, buffer::{BufferBuilder, BufferContext}, core::WgpuCore, entity::RenderInfo, geometry::GeometrySignature, handler::{ResourceHandler, ResourceStatus}, init_state::{InitMode, StateInit}, presets::{ShaderSpecPreset, TextureSampler}, render_pipeline::{RenderPipelineBuilder, RenderPipelineContext}, renderer::{DrawCommand, RenderContext}, shader::ShaderSpec, texture::{SamplerBuilder, TextureBuilder, TextureContext}, vertex::VertexLayoutBuilder,
+    bind_group::{BindGroupBuilder, BindGroupContext, BindGroupLayoutBuilder, BindGroupResource}, buffer::{BufferBuilder, BufferContext}, core::WgpuCore, entity::RenderInfo, font::{FontAsset, FontBuilder}, geometry::GeometrySignature, handler::{ResourceHandler, ResourceStatus}, init_state::{InitMode, StateInit}, presets::{ShaderSpecPreset, TextureSampler}, render_pipeline::{RenderPipelineBuilder, RenderPipelineContext}, renderer::{DrawCommand, RenderContext}, shader::ShaderSpec, texture::{SamplerBuilder, TextureBuilder, TextureContext}, vertex::VertexLayoutBuilder,
 };
 
 /// Group binding number for global uniforms
@@ -36,6 +36,8 @@ pub enum ResourceType {
     Sampler,
     /// a bind group
     BindGroup,
+    /// a font asset (atlas + metrics)
+    Font,
 }
 
 /// Specifies the scope for which a resource should be namespaced (allows different levels of resource sharing)
@@ -99,6 +101,7 @@ pub struct WgpuContext {
     shader_mod_handler: ResourceHandler<String, Arc<wgpu::ShaderModule>>,
 
     buffer_handler: ResourceHandler<ResourceID, Arc<wgpu::Buffer>>,
+    font_handler: ResourceHandler<ResourceID, Arc<FontAsset>>,
     texture_handler: ResourceHandler<ResourceID, Arc<TextureView>>,
     sampler_handler: ResourceHandler<ResourceID, Arc<wgpu::Sampler>>,
     bindgroup_handler: ResourceHandler<ResourceID, wgpu::BindGroup>,
@@ -121,6 +124,7 @@ impl WgpuContext {
             shader_mod_handler: ResourceHandler::new(),
             buffer_handler: ResourceHandler::new(),
             texture_handler: ResourceHandler::new(),
+            font_handler: ResourceHandler::new(),
             bindgroup_handler: ResourceHandler::new(),
         }
     }
@@ -294,6 +298,8 @@ impl WgpuContext {
             None => { return; }
         };
 
+        // println!("Creating new bind group with layout: {}", layout_id.label);
+
         let mut resource_pairs = Vec::with_capacity(bindings.len());
         for binding in &bindings {
             // check for buffer
@@ -303,6 +309,10 @@ impl WgpuContext {
             // check for texture
             if let Some(texture_view) = self.texture_handler.get(&binding.id) {
                 resource_pairs.push((binding.slot, BindGroupResource::Texture(Arc::clone(&texture_view))));
+            }
+            // check for font atlas
+            if let Some(font_asset) = self.font_handler.get(&binding.id) {
+                resource_pairs.push((binding.slot, BindGroupResource::Texture(Arc::clone(&font_asset.atlas))));
             }
             // check for sampler
             if let Some(sampler) = self.sampler_handler.get(&binding.id) {
@@ -356,6 +366,22 @@ impl WgpuContext {
         self.texture_handler.request_new(&id, builder, context);
     }
 
+    /// Get the font asset associated with the provided resource id.
+    /// If the font does not yet exist, this processes the font using the provided builder.
+    pub fn get_or_process_font(&mut self, id: &ResourceID, builder: &FontBuilder) -> Option<Arc<FontAsset>>{        
+        if self.font_handler.contains(&id) { 
+            return Some(Arc::clone(self.font_handler.get(&id)?)); 
+        } else {
+            let font_context = Arc::new(TextureContext {
+                queue: self.core.queue.clone(),
+                device: self.core.device.clone()
+            });
+
+            self.font_handler.request_new(&id, builder, font_context);
+            return None;
+        }
+    }
+
     /// initialize a new sampler request
     pub fn process_sampler(&mut self, id: &ResourceID, builder: &SamplerBuilder) {
         if self.sampler_handler.contains(id) { return; }
@@ -384,6 +410,7 @@ impl WgpuContext {
         self.bindgroup_handler.sync();
         self.buffer_handler.sync();
         self.texture_handler.sync();
+        self.font_handler.sync();
         self.sampler_handler.sync();
         self.shader_spec_handler.sync();
         self.shader_mod_handler.sync();

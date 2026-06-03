@@ -11,14 +11,7 @@ use super::{
 };
 
 use crate::graphics::{
-    camera::{Camera, Camera2D}, 
-    entity::{Entity, RenderInfo}, 
-    geometry::{Geometry, PositionAttribute, UVAttribute}, 
-    init_state::StateInit, instance::{InstanceGroup, TintAttribute, TransformAttribute, UVBoundsAttribute}, 
-    presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, 
-    renderer::Renderer, shape_factory::Shape2D, 
-    traits::{Driver, GameSystem}, 
-    transform::Transform
+    camera::{Camera, Camera2D}, entity::{Entity, RenderInfo}, font::Font, geometry::{Geometry, PositionAttribute, UVAttribute}, init_state::StateInit, instance::{InstanceGroup, TintAttribute, TransformAttribute, UVBoundsAttribute}, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, renderer::Renderer, shape_factory::Shape2D, traits::{Driver, GameSystem}, transform::Transform
 };
 
 pub struct Game {
@@ -26,6 +19,7 @@ pub struct Game {
     flag_animator: CyclicAnimator,
     particles: ParticleEmitter<PlaneSpawner>,
     camera: Camera2D,
+    font: Font,
 }
 
 impl Game {
@@ -97,7 +91,9 @@ impl Game {
         //     ))
         //     .with_behavior(FadeBehavior::new(FadeMode::Decrease));
 
-        Self {particles, flags, flag_animator, camera }
+        let font = Font::new("./assets/Monopack.ttf");
+
+        Self {particles, flags, flag_animator, camera, font }
     }
 }
 
@@ -119,11 +115,20 @@ impl Driver for Game {
         self.camera.set_aspect_ratio(aspect);
 
         // renderer.set_bg_color(0.392, 0.584, 0.929);
-        renderer.set_bg_color(0.02, 0.04, 0.1);
+        // renderer.set_bg_color(0.02, 0.04, 0.1);
+        // renderer.set_bg_color(0.8, 0.8, 0.8);
         renderer.set_camera(&mut self.camera);
 
         // renderer.draw(&mut self.flags);
 
-        self.particles.render(renderer);
+        renderer.draw_text(
+            "The big dog held a stick of dynamite.\nThe end was truly near.",
+            &mut self.font, 
+            Vec3::new(-1.5, -0.5, 0.0), 
+            0.15,
+            Vec4::new(0.0, 1.0, 1.0, 1.0)
+        );
+
+        // self.particles.render(renderer);
     }
 }

@@ -1,14 +1,16 @@
 #![allow(dead_code)]
 use crate::graphics::{
-   bind_group::{BindGroupLayoutBuilder, LayoutBindType, LayoutEntry, LayoutVisibility}, material::{ColorComponent, Material, SamplerComponent, TextureComponent}, render_pipeline::RenderPipelineBuilder, shader::ShaderSpecBuilder, texture::SamplerBuilder, vertex::{POSITION_LOC, TINT_LOC, TRANSFORM_LOC, UV_BOUNDS_LOC, UV_LOC}
+   bind_group::{BindGroupLayoutBuilder, LayoutBindType, LayoutEntry, LayoutVisibility}, material::{ColorComponent, FontComponent, Material, SamplerComponent, TextureComponent}, render_pipeline::RenderPipelineBuilder, shader::ShaderSpecBuilder, texture::SamplerBuilder, vertex::{POSITION_LOC, TINT_LOC, TRANSFORM_LOC, UV_BOUNDS_LOC, UV_LOC}
 };
 
 /// preset material configurations
 pub enum MaterialPreset {
     /// A material with a single color uniform
-    ColoredSprite ([f32; 4]),
+    ColoredSprite([f32; 4]),
     /// A material with a single texture uniform (and sampler)
-    TexturedSprite (String),
+    TexturedSprite(String),
+    /// A material with a font texture and sampler uniform
+    Font(String)
 }
 
 impl MaterialPreset {
@@ -27,6 +29,13 @@ impl MaterialPreset {
 
                 material
             }
+            MaterialPreset::Font(path) => {
+                let mut material = Material::new("textured-sprite");
+                material.add_component(FontComponent::new(label, &path));
+                material.add_component(SamplerComponent::new(TextureSampler::NearestClampToEdge));
+
+                material
+            }
         }
     }
 }
@@ -35,6 +44,7 @@ pub enum ShaderSpecPreset {
     ColoredSprite,
     TexturedSprite,
     AnimatedSprite,
+    Font,
 }
 
 impl ShaderSpecPreset {
@@ -103,6 +113,19 @@ impl ShaderSpecPreset {
                     .with_instance_attribute(UV_BOUNDS_LOC, wgpu::VertexFormat::Float32x4)
                     .with_bg_layout(global_bg_layout)
                     .with_bg_layout(textured_sprite_layout)
+            },
+            ShaderSpecPreset::Font => {
+                ShaderSpecBuilder::new(&self.path())
+                    .with_vertex_attribute(POSITION_LOC, wgpu::VertexFormat::Float32x3)
+                    .with_vertex_attribute(UV_LOC, wgpu::VertexFormat::Float32x2)
+                    .with_instance_attribute(TRANSFORM_LOC, wgpu::VertexFormat::Float32x4)
+                    .with_instance_attribute(TRANSFORM_LOC+1, wgpu::VertexFormat::Float32x4)
+                    .with_instance_attribute(TRANSFORM_LOC+2, wgpu::VertexFormat::Float32x4)
+                    .with_instance_attribute(TRANSFORM_LOC+3, wgpu::VertexFormat::Float32x4)
+                    .with_instance_attribute(TINT_LOC, wgpu::VertexFormat::Float32x4)
+                    .with_instance_attribute(UV_BOUNDS_LOC, wgpu::VertexFormat::Float32x4)
+                    .with_bg_layout(global_bg_layout)
+                    .with_bg_layout(textured_sprite_layout)
             }
         }
     }
@@ -112,6 +135,7 @@ impl ShaderSpecPreset {
             ShaderSpecPreset::ColoredSprite => "src/graphics/shaders/colored_sprite.wgsl".to_string(),
             ShaderSpecPreset::TexturedSprite => "src/graphics/shaders/textured_sprite.wgsl".to_string(),
             ShaderSpecPreset::AnimatedSprite => "src/graphics/shaders/animated_sprite.wgsl".to_string(),
+            ShaderSpecPreset::Font => "src/graphics/shaders/font.wgsl".to_string(),
         }
     }
 
@@ -122,7 +146,9 @@ impl ShaderSpecPreset {
             Some(ShaderSpecPreset::TexturedSprite.get())
         } else if shader_path == &ShaderSpecPreset::AnimatedSprite.path() {
             Some(ShaderSpecPreset::AnimatedSprite.get())
-        } else {
+        } else if shader_path == &ShaderSpecPreset::Font.path() {
+            Some(ShaderSpecPreset::Font.get())
+        }  else {
             None
         }
     }
@@ -136,6 +162,8 @@ pub enum RenderPipeline {
     TexturedSprite,
     /// 2D animated sprite pipeline
     AnimatedSprite,
+    /// pipeline for rendering fonts
+    Font,
 }
 
 impl RenderPipeline {
@@ -144,7 +172,10 @@ impl RenderPipeline {
         return match self {
             RenderPipeline::ColoredSprite => {
                 RenderPipelineBuilder::new().with_label("colored-sprite")
-            }
+            },
+            RenderPipeline::Font => {
+                RenderPipelineBuilder::new().with_label("font").with_alpha_blending()
+            },
             RenderPipeline::TexturedSprite => {
                 RenderPipelineBuilder::new().with_label("textured-sprite")
                     .with_custom_blending( wgpu::BlendState {

@@ -1,10 +1,10 @@
 #![allow(dead_code)]
 use std::sync::Arc;
 
-use glam::{Mat4, Vec4};
+use glam::{Mat4, Quat, Vec3, Vec4};
 use winit::window::Window;
 
-use crate::graphics::{entity::Entity, geometry::Geometry, init_state::StateInit, instance::InstanceGroup, render_pipeline::RenderPipelineBuilder, wpgu_context::{GeometryID, ResourceID, ResourceUpdate, WgpuContext}};
+use crate::graphics::{entity::Entity, font::{CharacterGlyph, Font, FontAsset, FontBuilder}, geometry::Geometry, init_state::StateInit, instance::{InstanceGroup, InstanceTemplate, TINT_ATTR, TRANSFORM_ATTR, UV_BOUNDS_ATTR}, render_pipeline::RenderPipelineBuilder, transform::Transform, wpgu_context::{GeometryID, ResourceID, ResourceUpdate, WgpuContext}};
 
 use super::{
     buffer::BufferBuilder, 
@@ -152,6 +152,77 @@ impl Renderer {
         );
     }
 
+    /// Draw text to the current texture
+    pub fn draw_text(&mut self, text: &str, font: &mut Font, pos: Vec3, size: f32, color: Vec4) {
+        if let Some(font_asset) = self.verify_font(&mut font.entity) {
+            // println!("Rendering text '{}' with font '{}'", text, font.path);
+
+            let template = font.entity.get_template().with_defaults();
+
+            let instance_group = &mut font.entity.instances;
+            instance_group.clear_instances(); // clears any character instances from the entity.
+
+            let mut cursor = pos.clone();
+            for character in text.chars() {
+                if character == '\n' {
+                    cursor.x = pos.x;
+                    cursor.y -= font_asset.line_height * size;
+
+                    continue;
+                }
+
+                if let Some(glyph) = font_asset.glyphs.get(&character) {
+                    let instance = self.create_char_instance(template.clone(), glyph, cursor, size, color);
+                    instance_group.add_instance(instance);
+
+                    cursor.x += glyph.advance * size;
+                }
+            }
+
+            self.draw(&mut font.entity); // use existing entity rendering pipeline
+        }
+    }
+
+    /// create a new character instance for the font entity from the provided glyph
+    pub fn create_char_instance<'a>(&mut self, mut template: InstanceTemplate, glyph: &CharacterGlyph, cursor: Vec3, size: f32, color: Vec4) -> InstanceTemplate {
+        let x_scale = (glyph.plane_bounds.z - glyph.plane_bounds.x) * size;
+        let y_scale = (glyph.plane_bounds.w - glyph.plane_bounds.y) * size;
+        
+        let x_pos = cursor.x + (glyph.plane_bounds.x * size) + (x_scale * 0.5);
+        let y_pos = cursor.y + (glyph.plane_bounds.y * size) + (y_scale * 0.5);
+
+        let transform = Transform::new(
+            Vec3::new(x_pos, y_pos, cursor.z),
+            Quat::IDENTITY,
+            Vec3::new(x_scale, y_scale, 1.0)
+        );
+
+        template.set_attribute(TRANSFORM_ATTR, transform);
+        template.set_attribute(UV_BOUNDS_ATTR, glyph.uv_bounds);
+        template.set_attribute(TINT_ATTR, color);
+
+        template
+    }
+
+    /// Verifies that the given entity can be used to render a font, and if so, fetches it's glyphs
+    fn verify_font(&mut self, font_entity: &mut Entity) -> Option<Arc<FontAsset>> {
+        let mut font_sig: Option<(ResourceID, FontBuilder)> = None;
+        for (binding, uniform_builder) in font_entity.get_uniforms().into_iter() {
+            match uniform_builder {
+                UniformBuilder::Font(builder) => {
+                    font_sig = Some((binding.id, builder))
+                }
+                _ => continue
+            }
+        }
+        
+        if let Some((id, builder)) = font_sig {
+            return self.context.get_or_process_font(&id, &builder);
+        }
+
+        None
+    }
+
     /// Process the geometry of an entity
     fn process_geometry(&mut self, geometry_id: GeometryID, geometry: &Geometry) {
         if !self.context.contains_buffer(&geometry_id.vertex_id) {
@@ -180,6 +251,7 @@ impl Renderer {
                 UniformBuilder::Buffer(builder) => self.context.process_buffer(&binding.id, &builder),
                 UniformBuilder::Texture(builder) => self.context.process_texture(&binding.id, &builder),
                 UniformBuilder::Sampler(builder) => self.context.process_sampler(&binding.id, &builder),
+                _ => {}
             }
             bindings.push(binding);
         }

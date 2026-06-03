@@ -32,10 +32,10 @@ impl Shape2D {
 
 pub fn gen_square(label: &str) -> GeometryData {
     let positions = vec![
-        Vec3::new( 1.0,  1.0, 0.0 ),
-        Vec3::new(-1.0,  1.0, 0.0 ),
-        Vec3::new(-1.0, -1.0, 0.0 ),
-        Vec3::new( 1.0, -1.0, 0.0 ),
+        Vec3::new( 0.5,  0.5, 0.0 ),
+        Vec3::new(-0.5,  0.5, 0.0 ),
+        Vec3::new(-0.5, -0.5, 0.0 ),
+        Vec3::new( 0.5, -0.5, 0.0 ),
     ];
 
     let uvs = vec![

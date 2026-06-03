@@ -20,3 +20,4 @@ pub mod shader;
 pub mod instance;
 pub mod packing_utils;
 pub mod data_table;
+pub mod font;

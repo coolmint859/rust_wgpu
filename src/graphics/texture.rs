@@ -105,7 +105,20 @@ impl TextureBuilder {
         self
     }
 
-    /// get the raw 
+    /// Determine the number of bytes per pixel based on the currently set format
+    fn bytes_per_pixel(&self) -> u32 {
+        match self.format {
+            wgpu::TextureFormat::R8Unorm | wgpu::TextureFormat::R8Snorm => 1,
+            wgpu::TextureFormat::Rg8Unorm | wgpu::TextureFormat::Rg8Snorm => 2,
+            wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Rgba8UnormSrgb | wgpu::TextureFormat::Bgra8UnormSrgb => 4,
+            wgpu::TextureFormat::R32Float => 4,
+            wgpu::TextureFormat::Rgba32Float => 16,
+            // Add more formats as your engine expands, or fallback safely
+            _ => panic!("Unsupported texture format for automatic layout calculation: {:?}", self.format),
+        }
+    }
+
+    /// get the raw image bytes to send to the gpu for rendering
     fn get_img_raw(&self) -> (u32, u32, Vec<u8>) {
         self.img_path.clone()
             .and_then(|path| {
@@ -122,6 +135,7 @@ impl TextureBuilder {
             })
             .or_else(|| {
                 if let Some((w, h, data)) = self.data.clone() {
+                    println!("found texture data of size {w}x{h}");
                     return Some((w, h, data));
                 }
                 return None;
@@ -139,6 +153,7 @@ impl ResourceBuilder for TextureBuilder {
 
     fn build(&self, context: Arc<TextureContext>) -> Result<Self::Output, String> {
         let (width, height, data) = self.get_img_raw();
+        let bytes_per_row = self.bytes_per_pixel() * width;
 
         let size = wgpu::Extent3d {
             width,
@@ -167,7 +182,7 @@ impl ResourceBuilder for TextureBuilder {
             &data,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(4 * width),
+                bytes_per_row: Some(bytes_per_row),
                 rows_per_image: Some(height),
             },
             size,
