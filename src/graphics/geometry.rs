@@ -63,13 +63,13 @@ impl Geometry {
     pub fn get_ids(&self) -> GeometryID {
         let vertex_id = ResourceID { 
             key: format!("{}::vertices", self.get_label()),
-            scope: ResourceScope::Entity,
+            scope: ResourceScope::Primitive,
             r_type: ResourceType::Vertex(self.get_layout_builder())
         };
 
         let index_id = ResourceID { 
             key: format!("{}::indices", self.get_label()),
-            scope: ResourceScope::Entity,
+            scope: ResourceScope::Primitive,
             r_type: ResourceType::Index
         };
 
@@ -112,12 +112,12 @@ impl Geometry {
 pub struct PositionAttribute;
 
 impl VertexAttribute for PositionAttribute {
-    fn name(&self) -> &'static str { POSITION_ATTR }
+    fn name(&self) -> String { POSITION_ATTR.to_string() }
     fn location(&self) -> u32 { POSITION_LOC }
     fn format(&self) -> wgpu::VertexFormat { wgpu::VertexFormat::Float32x3 }
 
     fn write_to(&self, idx: usize, vertices: &DataTable, buffer: &mut Vec<u8>) {
-        if let Some(position) = vertices.get_property::<DirtyVec<Vec3>>(self.name())
+        if let Some(position) = vertices.get_property::<DirtyVec<Vec3>>(&self.name())
             .and_then(|positions| positions.get(idx)) 
         {
             buffer.extend_from_slice(bytemuck::bytes_of(position.as_ref()));
@@ -130,12 +130,12 @@ impl VertexAttribute for PositionAttribute {
 pub struct UVAttribute;
 
 impl VertexAttribute for UVAttribute {
-    fn name(&self) -> &'static str { UV_ATTR }
+    fn name(&self) -> String { UV_ATTR.to_string() }
     fn location(&self) -> u32 { UV_LOC }
     fn format(&self) -> wgpu::VertexFormat { wgpu::VertexFormat::Float32x2 }
 
     fn write_to(&self, idx: usize, vertices: &DataTable, buffer: &mut Vec<u8>) {
-        if let Some(uv) = vertices.get_property::<DirtyVec<Vec2>>(self.name())
+        if let Some(uv) = vertices.get_property::<DirtyVec<Vec2>>(&self.name())
             .and_then(|uvs| uvs.get(idx)) 
         {
             buffer.extend_from_slice(bytemuck::bytes_of(uv.as_ref()));
@@ -148,12 +148,12 @@ impl VertexAttribute for UVAttribute {
 pub struct NormalAttribute;
 
 impl VertexAttribute for NormalAttribute {
-    fn name(&self) -> &'static str { NORMAL_ATTR }
+    fn name(&self) -> String { NORMAL_ATTR.to_string() }
     fn location(&self) -> u32 { NORMAL_LOC }
     fn format(&self) -> wgpu::VertexFormat { wgpu::VertexFormat::Float32x3 }
 
     fn write_to(&self, idx: usize, vertices: &DataTable, buffer: &mut Vec<u8>) {
-        if let Some(normal) = vertices.get_property::<DirtyVec<Vec3>>(self.name())
+        if let Some(normal) = vertices.get_property::<DirtyVec<Vec3>>(&self.name())
             .and_then(|normals| normals.get(idx)) 
         {
             buffer.extend_from_slice(bytemuck::bytes_of(normal.as_ref()));

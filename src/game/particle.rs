@@ -1,11 +1,11 @@
 #![allow(dead_code)]
-use std::{ops::Range, sync::atomic::AtomicU32};
+use std::ops::Range;
 
 use glam::Vec4;
 
-use crate::{game::animation::{AnimationController}, graphics::{data_table::DataTable, entity::{Entity, RenderInfo}, geometry::{Geometry, PositionAttribute, UVAttribute}, instance::{InstanceGroup, InstanceTemplate, TINT_ATTR, TintAttribute, TransformAttribute}, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, renderer::Renderer, shape_factory::Shape2D, traits::GameSystem, transform::Transform}};
+use crate::{game::animation::{AnimationController}, graphics::{data_table::DataTable, primitive::{Primitive, RenderInfo}, geometry::{Geometry, PositionAttribute, UVAttribute}, instance::{InstanceGroup, InstanceTemplate, TintAttribute, TransformAttribute}, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, renderer::Renderer, shape_factory::Shape2D, traits::GameSystem, transform::Transform}};
 
-static PARTICLE_SYS_COUNTER: AtomicU32 = AtomicU32::new(0);
+pub const PARTICLE_COLOR: &str = "particle_color";
 
 /// Core trait for particle systems.
 /// 
@@ -68,7 +68,7 @@ pub struct ParticleEmitter<L: ParticleLifeCycle + 'static> {
     /// the configuration of the emitter
     config: ParticleConfig,
     /// the particle instances to be simulated
-    particles: Entity,
+    particles: Primitive,
     /// template for creating new particle instances
     particle_template: InstanceTemplate,
     /// the set of particle properties (e.g., lifetime, spin, velocity, etc)
@@ -84,13 +84,13 @@ pub struct ParticleEmitter<L: ParticleLifeCycle + 'static> {
 }
 
 impl<L: ParticleLifeCycle + 'static> ParticleEmitter<L> {
-    pub fn new(config: ParticleConfig, particles: Entity, lifecycle: L) -> Self {
+    pub fn new(config: ParticleConfig, particles: Primitive, lifecycle: L) -> Self {
         let mut particle_props = DataTable::new(config.total_particles);
         lifecycle.init_properties(&mut particle_props);
 
         let particle_template = particles.get_template()
             .with_defaults()
-            .with_attribute(TINT_ATTR, Vec4::ONE); // override tint default to be all 1s
+            .with_attribute(PARTICLE_COLOR, Vec4::ONE); // override tint default to be all 1s
 
         Self {
             config,
@@ -112,7 +112,7 @@ impl<L: ParticleLifeCycle + 'static> ParticleEmitter<L> {
             .with_label("particles")
             .with_attribute(TransformAttribute, Vec::<Transform>::with_capacity(config.total_particles));
 
-        let particles = Entity::from_group(
+        let particles = Primitive::from_group(
             "particles",
             geometry,
             MaterialPreset::ColoredSprite(color.to_array()).with_label("particles"),
@@ -135,9 +135,9 @@ impl<L: ParticleLifeCycle + 'static> ParticleEmitter<L> {
         let instance_group = InstanceGroup::new(0, config.total_particles)
             .with_label("particles")
             .with_attribute(TransformAttribute, Vec::<Transform>::with_capacity(config.total_particles))
-            .with_attribute(TintAttribute, Vec::<Vec4>::with_capacity(config.total_particles));
+            .with_attribute(TintAttribute(PARTICLE_COLOR, 10), Vec::<Vec4>::with_capacity(config.total_particles));
 
-        let particles = Entity::from_group(
+        let particles = Primitive::from_group(
             "particles",
             geometry,
             MaterialPreset::TexturedSprite(path.to_string()).with_label("particles"),

@@ -10,8 +10,8 @@ pub struct RenderInfo {
     pub pipeline: RenderPipelineBuilder,
 }
 
-/// Consolidates render info for multiple instances of an entity
-pub struct Entity {
+/// A high level struct representing instances of renderable geometry
+pub struct Primitive {
     id: u32,
     pub label: String,
     pub geometry: Geometry,
@@ -20,27 +20,27 @@ pub struct Entity {
     pub render_info: RenderInfo
 }
 
-impl Entity {
-    /// Create an entity with a single instance
+impl Primitive {
+    /// Create a primitive with a single instance
     pub fn new(label: &str, geometry: Geometry, material: Material, transform: Transform, render_info: RenderInfo) -> Self {
         let instances = InstanceGroup::new(1, 1)
             .with_label(label)
             .with_attribute(TransformAttribute, vec![transform])
-            .with_attribute(TintAttribute, vec![glam::Vec4::ONE]);
+            .with_attribute(TintAttribute("color", 10), vec![glam::Vec4::ONE]);
 
-        Entity::from_group(label, geometry, material, instances, render_info)
+        Primitive::from_group(label, geometry, material, instances, render_info)
     }
 
-    /// Create an entity with multiple instances (just transforms)
+    /// Create a primitive with multiple instances (just transforms)
     pub fn new_instanced(label: &str, geometry: Geometry, material: Material, instances: Vec<Transform>, render_info: RenderInfo) -> Self {
         let instances = InstanceGroup::new(instances.len(), instances.capacity())
             .with_label(label)
             .with_attribute(TransformAttribute, instances);
         
-        Entity::from_group(label, geometry, material, instances, render_info)
+        Primitive::from_group(label, geometry, material, instances, render_info)
     }
 
-    /// Create an entity with a custom instance group
+    /// Create a primitive with a custom instance group
     pub fn from_group(label: &str, geometry: Geometry, material: Material, instances: InstanceGroup, render_info: RenderInfo) -> Self {
         let id = ENTITY_COUNTER.fetch_add(1, Ordering::SeqCst);
         
@@ -54,9 +54,9 @@ impl Entity {
         }
     }
 
-    /// Get an empty template of this entity's instances.
+    /// Get an empty template of this primitive's instances.
     /// 
-    /// This is useful when adding new instances to the entity as it is.
+    /// This is useful when adding new instances to the primitive as it is.
     pub fn get_template(&self) -> InstanceTemplate {
         let mut template = InstanceTemplate::new();
 
@@ -67,69 +67,69 @@ impl Entity {
         template
     }
 
-    /// Get a reference to the first instance of the entity
+    /// Get a reference to the first instance of the primitive, if exists
     ///
-    /// Useful in cases where an entity only has one instance
+    /// Useful in cases where a primitive only has one instance
     pub fn get_first(&self) -> Option<Instance<'_>> {
         self.instances.get_instance(0)
     }
 
-    /// Get a reference to the first instance of the entity
+    /// Get a reference to the first instance of the primitive
     ///
-    /// Useful in cases where an entity only has one instance
+    /// Useful in cases where a primitive only has one instance
     /// 
     /// ## Panics
-    /// If the entity has no instances defined
+    /// If the primitive has no instances defined
     pub fn first(&self) -> Instance<'_> {
-        self.instances.get_instance(0).expect("Expected this entity to have at least one isntance, but none where found.")
+        self.instances.get_instance(0).expect("Expected this primitive to have at least one isntance, but none where found.")
     }
 
-    /// Get a mutable reference to the first instance of the entity.
+    /// Get a mutable reference to the first instance of the primitive, if exists.
     /// 
-    /// Useful in cases where an entity only has one instance
-    pub fn get_first_mut(&mut self) -> InstanceMut<'_> {
-        self.instances.get_instance_mut(0).unwrap()
+    /// Useful in cases where an primitive only has one instance
+    pub fn get_first_mut(&mut self) -> Option<InstanceMut<'_>> {
+        self.instances.get_instance_mut(0)
     }
 
-    /// Get a mutable reference to the first instance of the entity
+    /// Get a mutable reference to the first instance of the primitive
     ///
-    /// Useful in cases where an entity only has one instance
+    /// Useful in cases where an primitive only has one instance
     /// 
     /// ## Panics
-    /// If the entity has no instances defined
+    /// If the primitive has no instances defined
     pub fn first_mut(&mut self) -> InstanceMut<'_> {
-        self.instances.get_instance_mut(0).expect("Expected this entity to have at least one isntance, but none where found.")
+        self.instances.get_instance_mut(0).expect("Expected this primitive to have at least one isntance, but none where found.")
     }
 
-    /// Get the resource id for the instance buffer associated with this entity.
+    /// Get the resource id for the instance buffer associated with this primitive.
     pub fn instance_id(&self) -> ResourceID {
         ResourceID {
-            key: self.entity_namespace(&self.instances.get_label()),
-            scope: ResourceScope::Entity,
+            key: self.primitive_namespace(&self.instances.get_label()),
+            scope: ResourceScope::Primitive,
             r_type: ResourceType::Instance(self.instances.get_layout_builder())
         }
     }
 
-    /// Get the resource id for the geometry buffers associated with this entity.
+    /// Get the resource id for the geometry buffers associated with this primitive.
     pub fn geometry_id(&self) -> GeometryID {
         self.geometry.get_ids()
     }
 
-    /// Get the resource id for this entity's material bind group.
+    /// Get the resource id for this primitive's material bind group.
     pub fn material_id(&self) -> ResourceID {
         ResourceID {
-            key: self.entity_namespace(&self.geometry.get_label()),
-            scope: ResourceScope::Entity,
+            key: self.primitive_namespace(&self.geometry.get_label()),
+            scope: ResourceScope::Primitive,
             r_type: ResourceType::BindGroup
         }
     }
 
-    /// Get the uniforms associated with this entity's material namespaced to the entity.
+    /// Get the uniforms associated with this primitive's material, namespaced to the primitive.
     pub fn get_uniforms(&self) -> Vec<(ResourceBinding, UniformBuilder)> {
         let mut uniforms = self.material.get_uniforms();
         for (binding, _) in &mut uniforms {
             match binding.id.scope {
-                ResourceScope::Entity => binding.id.key = self.entity_namespace(&binding.id.key),
+                ResourceScope::Primitive => binding.id.key = self.primitive_namespace(&binding.id.key),
                 _ => ()
             };
         }
@@ -137,12 +137,12 @@ impl Entity {
         uniforms
     }
 
-    /// Get this entity's uniform data as a series of updates
+    /// Get this primitive's uniform data as a series of updates
     pub fn uniform_updates(&mut self) -> Vec<(ResourceID, ResourceUpdate)> {
         let mut updated = self.material.get_updated();
         for (id, _) in &mut updated {
             match id.scope {
-                ResourceScope::Entity => id.key = self.entity_namespace(&id.key),
+                ResourceScope::Primitive => id.key = self.primitive_namespace(&id.key),
                 _ => ()
             };
         }
@@ -150,8 +150,8 @@ impl Entity {
         updated
     }
 
-    /// Namespace the provided resource key to this entity
-    fn entity_namespace(&self, resource_key: &String) -> String {
+    /// Namespace the provided resource key to this primitive
+    fn primitive_namespace(&self, resource_key: &String) -> String {
         format!("{}_{}::{}", self.geometry.get_label(), self.id, resource_key)
     }
 }

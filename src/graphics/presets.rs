@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 use crate::graphics::{
-   bind_group::{BindGroupLayoutBuilder, LayoutBindType, LayoutEntry, LayoutVisibility}, material::{ColorComponent, FontComponent, Material, SamplerComponent, TextureComponent}, render_pipeline::RenderPipelineBuilder, shader::ShaderSpecBuilder, texture::SamplerBuilder, vertex::{POSITION_LOC, TINT_LOC, TRANSFORM_LOC, UV_BOUNDS_LOC, UV_LOC}
+   bind_group::{BindGroupLayoutBuilder, LayoutBindType, LayoutEntry, LayoutVisibility}, material::{ColorComponent, FontComponent, Material, SamplerComponent, TextureComponent}, render_pipeline::RenderPipelineBuilder, shader::ShaderSpecBuilder, texture::SamplerBuilder, vertex::{POSITION_LOC, TINT_LOC, TRANSFORM_LOC, UV_BOUNDS_LOC, UV_LOC}, wpgu_context::ResourceID
 };
 
 /// preset material configurations
@@ -9,8 +9,8 @@ pub enum MaterialPreset {
     ColoredSprite([f32; 4]),
     /// A material with a single texture uniform (and sampler)
     TexturedSprite(String),
-    /// A material with a font texture and sampler uniform
-    Font(String)
+    /// A material with a font texture and linear sampler uniform
+    Font(ResourceID)
 }
 
 impl MaterialPreset {
@@ -29,10 +29,10 @@ impl MaterialPreset {
 
                 material
             }
-            MaterialPreset::Font(path) => {
+            MaterialPreset::Font(id) => {
                 let mut material = Material::new("textured-sprite");
-                material.add_component(FontComponent::new(label, &path));
-                material.add_component(SamplerComponent::new(TextureSampler::NearestClampToEdge));
+                material.add_component(FontComponent::new(label, id));
+                material.add_component(SamplerComponent::new(TextureSampler::LinearClampToEdge));
 
                 material
             }
@@ -123,6 +123,7 @@ impl ShaderSpecPreset {
                     .with_instance_attribute(TRANSFORM_LOC+2, wgpu::VertexFormat::Float32x4)
                     .with_instance_attribute(TRANSFORM_LOC+3, wgpu::VertexFormat::Float32x4)
                     .with_instance_attribute(TINT_LOC, wgpu::VertexFormat::Float32x4)
+                    .with_instance_attribute(11, wgpu::VertexFormat::Float32x4)
                     .with_instance_attribute(UV_BOUNDS_LOC, wgpu::VertexFormat::Float32x4)
                     .with_bg_layout(global_bg_layout)
                     .with_bg_layout(textured_sprite_layout)

@@ -94,7 +94,7 @@ impl BindGroupLayoutBuilder {
                 multisampled: false,
             },
             LayoutBindType::Sampler => wgpu::BindingType::Sampler( 
-                wgpu::SamplerBindingType::NonFiltering
+                wgpu::SamplerBindingType::Filtering
             )
         }
     }

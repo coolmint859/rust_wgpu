@@ -4,7 +4,7 @@ use std::{f32::consts::PI, ops::Range};
 use glam::{Vec3, Vec4};
 use rand_distr::{Distribution, Normal};
 
-use crate::{game::{animation::FadeMode, particle::{ParticleBehavior, ParticleInit, ParticleLifeCycle}}, graphics::{data_table::DataTable, instance::{InstanceGroup, TintAttribute, TransformAttribute}, transform::Transform}};
+use crate::{game::{animation::FadeMode, particle::{PARTICLE_COLOR, ParticleBehavior, ParticleInit, ParticleLifeCycle}}, graphics::{data_table::DataTable, instance::{InstanceGroup, TRANSFORM_ATTR}, transform::Transform}};
 
 const TIMELINE: &str = "lifetime";
 const VELOCITY: &str = "velocity";
@@ -51,7 +51,7 @@ impl ParticleInit for PointSpawner2D {
 
 impl ParticleLifeCycle for PointSpawner2D {
     fn spawn(&self, instances: &mut InstanceGroup, particles: &mut DataTable, range: Range<usize>) {
-        let transforms_opt = instances.get_attribute_mut::<Transform>(TransformAttribute);
+        let transforms_opt = instances.get_attribute_mut::<Transform>(TRANSFORM_ATTR);
         let timelines_opt = particles.get_property_mut::<Vec<ParticleTimeline>>(TIMELINE);
         
         if let (Some(transforms), Some(timelines)) = (transforms_opt, timelines_opt) {
@@ -140,7 +140,7 @@ impl ParticleBehavior for RadialKinematicsBehavior {
         let velocities_opt = properties.get_property::<Vec<Vec3>>(VELOCITY);
         let spins_opt = properties.get_property::<Vec<f32>>(SPIN);
 
-        let transforms_opt = instances.get_attribute_mut::<Transform>(TransformAttribute);
+        let transforms_opt = instances.get_attribute_mut::<Transform>(TRANSFORM_ATTR);
 
         if let (Some(transforms), Some(velocities), Some(spins)) = (transforms_opt, velocities_opt, spins_opt) {
             for i in 0..count {
@@ -169,7 +169,7 @@ impl ParticleInit for FadeBehavior {
 impl ParticleBehavior for FadeBehavior {
     fn simulate(&self, instances: &mut InstanceGroup, particles: &mut DataTable, count: usize, _dt: f32) {
         let timelines_opt = particles.get_property::<Vec<ParticleTimeline>>(TIMELINE);
-        let tints_opt = instances.get_attribute_mut::<Vec4>(TintAttribute);
+        let tints_opt = instances.get_attribute_mut::<Vec4>(PARTICLE_COLOR);
         
         if let (Some(timelines), Some(tints)) = (timelines_opt, tints_opt) {
             for i in 0..count {
@@ -191,7 +191,7 @@ impl ParticleInit for PlaneSpawner {}
 
 impl ParticleLifeCycle for PlaneSpawner {
     fn spawn(&self, instances: &mut InstanceGroup, _properties: &mut DataTable, range: Range<usize>) {
-        if let Some(transforms) = instances.get_attribute_mut::<Transform>(TransformAttribute) {
+        if let Some(transforms) = instances.get_attribute_mut::<Transform>(TRANSFORM_ATTR) {
             let rng = &mut rand::thread_rng();
 
             for i in range {
@@ -209,7 +209,7 @@ impl ParticleLifeCycle for PlaneSpawner {
 
     fn prune(&self, instances: &mut InstanceGroup, properties: &mut DataTable, count: usize, _dt: f32) -> usize {
         let mut dead_instances = Vec::new();
-        if let Some(transforms) = instances.get_attribute_mut::<Transform>(TransformAttribute) {
+        if let Some(transforms) = instances.get_attribute_mut::<Transform>(TRANSFORM_ATTR) {
             for idx in 0..count {
                 if transforms[idx].get_position().y <= self.floor_y {
                     dead_instances.push(idx);
@@ -261,7 +261,7 @@ impl ParticleBehavior for WeatherForceBehavior {
         let velocities_opt = prop_proxy.get_property_mut::<Vec<Vec3>>(VELOCITY);
         let delays_opt = prop_proxy.get_property_mut::<Vec<MovementDelay>>(DROP_DELAY);
 
-        let transforms_opt = instances.get_attribute_mut::<Transform>(TransformAttribute);
+        let transforms_opt = instances.get_attribute_mut::<Transform>(TRANSFORM_ATTR);
         if let (Some(transforms), Some(mut velocities), Some(mut delays)) = (transforms_opt, velocities_opt, delays_opt) {
             let mut rng = rand::thread_rng();
 
@@ -284,7 +284,7 @@ impl ParticleBehavior for WeatherForceBehavior {
         let velocities_opt = prop_proxy.get_property_mut::<Vec<Vec3>>(VELOCITY);
         let delays_opt = prop_proxy.get_property_mut::<Vec<MovementDelay>>(DROP_DELAY);
 
-        let transforms_opt = instances.get_attribute_mut::<Transform>(TransformAttribute);
+        let transforms_opt = instances.get_attribute_mut::<Transform>(TRANSFORM_ATTR);
 
         if let (Some(mut velocities), Some(mut delays), Some(transforms)) = (velocities_opt, delays_opt, transforms_opt) {
             for i in 0..count {

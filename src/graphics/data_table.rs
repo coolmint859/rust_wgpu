@@ -33,7 +33,7 @@ pub trait DynVec: Any {
     /// clear the dyn vector
     fn clear(&mut self);
 
-    /// Convert the data store into it's Any type
+    /// Convert the DynVec into a reference of it's Any type
     fn as_any_ref<'a>(&'a self) -> &'a dyn Any;
     /// Convert the data store into it's Any type as mutable
     fn as_any_mut<'a>(&'a mut self) -> &'a mut dyn Any;
@@ -382,7 +382,10 @@ impl DataTable {
         self
     }
 
-    /// add a property to this data table
+    /// Add a property to this data table.
+    /// 
+    /// * 'key' a unique string referencing the property in the table.
+    /// * 'prop_func' a closure that takes in the capacity of the table and returns a DynVec implementation.
     pub fn with_property<V>(mut self, key: &str, prop_func: impl FnOnce(usize) -> V) -> Self 
     where V: DynVec + 'static
     {
@@ -390,7 +393,10 @@ impl DataTable {
         self
     }
 
-    /// add a property to this data table
+    /// Add a property to this data table.
+    /// 
+    /// * 'key' a unique string referencing the property in the table.
+    /// * 'prop_func' a closure that takes in the capacity of the table and returns a DynVec implementation.
     pub fn add_property<V>(&mut self, key: &str, prop_func: impl FnOnce(usize) -> V) 
     where V: DynVec + 'static
     {
@@ -441,14 +447,14 @@ impl DataTable {
         }
     }
 
-    /// Clear the property vectors in this data table.
+    /// Clear the property vectors in this data table. This does not clear the properties themselves.
     pub fn reset_properties(&mut self) {
         for dyn_vec in self.properties.values_mut() {
             dyn_vec.clear();
         }
     }
 
-    /// Clear the DataTable off all properties
+    /// Clear the DataTable of all properties. This preserves the capacity.
     pub fn clear(&mut self) {
         self.properties.clear();
     }

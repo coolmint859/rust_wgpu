@@ -135,7 +135,6 @@ impl TextureBuilder {
             })
             .or_else(|| {
                 if let Some((w, h, data)) = self.data.clone() {
-                    println!("found texture data of size {w}x{h}");
                     return Some((w, h, data));
                 }
                 return None;

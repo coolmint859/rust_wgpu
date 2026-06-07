@@ -3,10 +3,9 @@ use std::collections::HashMap;
 
 use glam::Vec4;
 
-use crate::graphics::{buffer::BufferBuilder, data_table::{DataTable, DataView, DirtyVec, DynVec}, packing_utils::PackingUtils, transform::Transform, vertex::{TINT_LOC, TRANSFORM_LOC, UV_BOUNDS_LOC, VertexAttribute, VertexLayoutBuilder}, wpgu_context::ResourceUpdate};
+use crate::graphics::{buffer::BufferBuilder, data_table::{DataTable, DataView, DirtyVec, DynVec}, packing_utils::PackingUtils, transform::Transform, vertex::{TRANSFORM_LOC, UV_BOUNDS_LOC, VertexAttribute, VertexLayoutBuilder}, wpgu_context::ResourceUpdate};
 
 pub const TRANSFORM_ATTR: &str = "transform";
-pub const TINT_ATTR: &str = "tint";
 pub const UV_BOUNDS_ATTR: &str = "uv_bounds";
 
 /// A modifiable template for new entity instances
@@ -110,7 +109,7 @@ impl<'a> Instance<'a> {
     /// Get a reference to an attribute associated with this instance (if no attribute is found, None is returned) 
     pub fn get_attribute<T: Default + Clone+ 'static>(&self, attribute: impl VertexAttribute + 'static) -> Option<&DataView<T>> {
         self.data.properties
-            .get(attribute.name())?
+            .get(&attribute.name())?
             .downcast_ref::<DirtyVec<T>>()?
             .get(self.index)
     }
@@ -168,7 +167,7 @@ impl<'a> InstanceMut<'a> {
     /// Get a reference to an attribute associated with this instance (if no attribute is found, None is returned) 
     pub fn get_attribute<T: Default + Clone + 'static>(&self, attribute: impl VertexAttribute + 'static) -> Option<&DataView<T>> {
         self.data.properties
-            .get(attribute.name())?
+            .get(&attribute.name())?
             .downcast_ref::<DirtyVec<T>>()?
             .get(self.index)
     }
@@ -176,7 +175,7 @@ impl<'a> InstanceMut<'a> {
     /// Get a reference to an attribute associated with this instance (if no attribute is found, None is returned) 
     pub fn get_attribute_mut<T: Default + Clone + 'static>(&mut self, attribute: impl VertexAttribute + 'static) -> Option<&mut DataView<T>> {
         self.data.properties
-            .get_mut(attribute.name())?
+            .get_mut(&attribute.name())?
             .downcast_mut::<DirtyVec<T>>()?
             .get_mut(self.index)
     }
@@ -235,7 +234,7 @@ impl InstanceGroup {
         V: VertexAttribute + 'static,
         T: Clone + Default + 'static,
     {
-        self.instances.add_property(attribute.name(),|cap| {
+        self.instances.add_property(&attribute.name(),|cap| {
             let mut dirty_vec = DirtyVec::<T>::with_capacity(cap);
             dirty_vec.append(data);
 
@@ -282,18 +281,20 @@ impl InstanceGroup {
 
     /// Remove all instances from the group, but keep their attributes.
     pub fn clear_instances(&mut self) {
+        if self.count == 0 { return; }
+
         self.instances.reset_properties();
         self.count = 0;
     }
 
     /// Get a reference to the attribute data associated with the provided attribute, if exists
-    pub fn get_attribute<T: Default + Clone + 'static>(&self, attribute: impl VertexAttribute + 'static) -> Option<&DirtyVec<T>> {
-        Some(self.instances.get_property::<DirtyVec<T>>(attribute.name())?)
+    pub fn get_attribute<T: Default + Clone + 'static>(&self, attribute: &str) -> Option<&DirtyVec<T>> {
+        Some(self.instances.get_property::<DirtyVec<T>>(attribute)?)
     }
 
     /// Get a mutable reference to the attribute data associated with the provided attribute, if exists
-    pub fn get_attribute_mut<T: Default + Clone + 'static>(&mut self, attribute: impl VertexAttribute + 'static) -> Option<&mut DirtyVec<T>> {
-        Some(self.instances.get_property_mut::<DirtyVec<T>>(attribute.name())?)
+    pub fn get_attribute_mut<T: Default + Clone + 'static>(&mut self, attribute: &str) -> Option<&mut DirtyVec<T>> {
+        Some(self.instances.get_property_mut::<DirtyVec<T>>(attribute)?)
     }
 
     /// Get a reference to the instance (vertex) data associated with this group
@@ -333,13 +334,13 @@ impl InstanceGroup {
 pub struct TransformAttribute;
 
 impl VertexAttribute for TransformAttribute {
-    fn name(&self) -> &'static str { TRANSFORM_ATTR }
+    fn name(&self) -> String { TRANSFORM_ATTR.to_string() }
     fn location(&self) -> u32 { TRANSFORM_LOC }
     fn format(&self) -> wgpu::VertexFormat { wgpu::VertexFormat::Float32x4 }
     fn attr_count(&self) -> u32 { 4 }
 
     fn write_to(&self, idx: usize, instances: &DataTable, buffer: &mut Vec<u8>) {
-        if let Some(transform) = instances.get_property::<DirtyVec<Transform>>(self.name())
+        if let Some(transform) = instances.get_property::<DirtyVec<Transform>>(&self.name())
             .and_then(|transforms| transforms.get(idx)) 
         {
             buffer.extend_from_slice(bytemuck::bytes_of(&transform.to_updated()));
@@ -347,17 +348,17 @@ impl VertexAttribute for TransformAttribute {
     }
 }
 
-/// Instance attribute for tints
+/// Instance attribute for color tints
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]
-pub struct TintAttribute;
+pub struct TintAttribute(pub &'static str, pub u32);
 
 impl VertexAttribute for TintAttribute {
-    fn name(&self) -> &'static str { TINT_ATTR }
-    fn location(&self) -> u32 { TINT_LOC }
+    fn name(&self) -> String { self.0.to_string() }
+    fn location(&self) -> u32 { self.1 }
     fn format(&self) -> wgpu::VertexFormat { wgpu::VertexFormat::Float32x4 }
 
     fn write_to(&self, idx: usize, instances: &DataTable, buffer: &mut Vec<u8>) {
-        if let Some(tint) = instances.get_property::<DirtyVec<Vec4>>(self.name())
+        if let Some(tint) = instances.get_property::<DirtyVec<Vec4>>(&self.name())
             .and_then(|tints| tints.get(idx)) 
         {
             buffer.extend_from_slice(bytemuck::bytes_of(tint.as_ref()));
@@ -365,17 +366,17 @@ impl VertexAttribute for TintAttribute {
     }
 }
 
-/// Instance attribute for uv offsets and scales for use in a spritesheet
+/// Instance attribute for uv offsets and scaling for use in a texture atlas
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]
 pub struct UVBoundsAttribute;
 
 impl VertexAttribute for UVBoundsAttribute {
-    fn name(&self) -> &'static str { UV_BOUNDS_ATTR }
+    fn name(&self) -> String { UV_BOUNDS_ATTR.to_string() }
     fn location(&self) -> u32 { UV_BOUNDS_LOC }
     fn format(&self) -> wgpu::VertexFormat { wgpu::VertexFormat::Float32x4 }
 
     fn write_to(&self, idx: usize, instances: &DataTable, buffer: &mut Vec<u8>) {
-        if let Some(uv_bounds) = instances.get_property::<DirtyVec<Vec4>>(self.name())
+        if let Some(uv_bounds) = instances.get_property::<DirtyVec<Vec4>>(&self.name())
             .and_then(|bounds| bounds.get(idx))
         {
             buffer.extend_from_slice(bytemuck::bytes_of(uv_bounds.as_ref()));

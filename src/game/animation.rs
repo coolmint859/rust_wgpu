@@ -2,7 +2,9 @@
 
 use glam::Vec4;
 
-use crate::graphics::{ data_table::{DataTable, DirtyVec}, entity::Entity, instance::{TINT_ATTR, UV_BOUNDS_ATTR}};
+use crate::graphics::{ data_table::{DataTable, DirtyVec}, primitive::Primitive, instance::{UV_BOUNDS_ATTR}};
+
+pub const FADE_COLOR: &str = "fade_color";
 
 /// Represents animation behaviors on an entity orchestrated by an AnimationController
 pub trait Animation {
@@ -17,7 +19,7 @@ pub trait Animation {
 /// Represents systems that control animated entities
 pub trait AnimationController {
     /// advance the animation and animate the provided instances
-    fn animate(&mut self, entity: &mut Entity, dt: f32, et: f32);
+    fn animate(&mut self, entity: &mut Primitive, dt: f32, et: f32);
 }
 
 /// An animator that animates entities in a loop.
@@ -55,7 +57,7 @@ impl CyclicAnimator {
 }
 
 impl AnimationController for CyclicAnimator {
-    fn animate(&mut self, entity: &mut Entity, dt: f32, et: f32) {
+    fn animate(&mut self, primitive: &mut Primitive, dt: f32, et: f32) {
         self.frame_timer += dt;
 
         if self.frame_timer >= self.frame_times[self.current_frame] { 
@@ -64,7 +66,7 @@ impl AnimationController for CyclicAnimator {
         }
         
         for anim in self.animations.iter_mut() {
-            anim.update(entity.instances.get_instances_mut(), self.current_frame, et);
+            anim.update(primitive.instances.get_instances_mut(), self.current_frame, et);
         }
     }
 }
@@ -176,7 +178,7 @@ impl Animation for FadeAnimation {
     fn update(&mut self, instances: &mut DataTable, _curr_frame: usize, et: f32) {
         let alpha = self.mode.get_alpha(et, self.duration);
 
-        if let Some(tints) = instances.get_property_mut::<DirtyVec<Vec4>>(TINT_ATTR) {
+        if let Some(tints) = instances.get_property_mut::<DirtyVec<Vec4>>(FADE_COLOR) {
             for tint in tints.iter_mut() {
                 tint.w = alpha;
             }

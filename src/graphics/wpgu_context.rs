@@ -4,7 +4,7 @@ use winit::window::Window;
 use std::sync::Arc;
 
 use crate::graphics::{
-    bind_group::{BindGroupBuilder, BindGroupContext, BindGroupLayoutBuilder, BindGroupResource}, buffer::{BufferBuilder, BufferContext}, core::WgpuCore, entity::RenderInfo, font::{FontAsset, FontBuilder}, geometry::GeometrySignature, handler::{ResourceHandler, ResourceStatus}, init_state::{InitMode, StateInit}, presets::{ShaderSpecPreset, TextureSampler}, render_pipeline::{RenderPipelineBuilder, RenderPipelineContext}, renderer::{DrawCommand, RenderContext}, shader::ShaderSpec, texture::{SamplerBuilder, TextureBuilder, TextureContext}, vertex::VertexLayoutBuilder,
+    bind_group::{BindGroupBuilder, BindGroupContext, BindGroupLayoutBuilder, BindGroupResource}, buffer::{BufferBuilder, BufferContext}, core::WgpuCore, primitive::RenderInfo, font::{FontAsset, FontBuilder}, geometry::GeometrySignature, handler::{ResourceHandler, ResourceStatus}, init_state::{InitMode, StateInit}, presets::{ShaderSpecPreset, TextureSampler}, render_pipeline::{RenderPipelineBuilder, RenderPipelineContext}, renderer::{DrawCommand, RenderContext}, shader::ShaderSpec, texture::{SamplerBuilder, TextureBuilder, TextureContext}, vertex::VertexLayoutBuilder,
 };
 
 /// Group binding number for global uniforms
@@ -43,9 +43,9 @@ pub enum ResourceType {
 /// Specifies the scope for which a resource should be namespaced (allows different levels of resource sharing)
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]
 pub enum ResourceScope {
-    /// Resources are scoped to individual entities and not shared (best used for buffers)
-    Entity,
-    /// Resources are scoped to materials and shared between entities (best used for textures)
+    /// Resources are scoped to individual primitives and not shared (best used for buffers)
+    Primitive,
+    /// Resources are scoped to materials and shared between primitives (best used for textures)
     Material,
     /// Resources are globally scoped and are shared everywhere (best used for samplers)
     Global
@@ -354,6 +354,20 @@ impl WgpuContext {
         return self.buffer_handler.contains(id)
     }
 
+    pub fn contains_resource(&self, id: &ResourceID) -> bool {
+        match id.r_type {
+            ResourceType::Texture => self.texture_handler.contains(id),
+            ResourceType::Sampler => self.sampler_handler.contains(id),
+            ResourceType::Font => self.font_handler.contains(id),
+            ResourceType::BindGroup => self.bindgroup_handler.contains(id),
+    
+            ResourceType::Uniform | ResourceType::Index | ResourceType::Storage |
+            ResourceType::Vertex(_) | ResourceType::Instance(_) => {
+                self.buffer_handler.contains(id)
+            },
+        }
+    }
+
     /// initialize a new texture request
     pub fn process_texture(&mut self, id: &ResourceID, builder: &TextureBuilder) {
         if self.texture_handler.contains(id) { return; }
@@ -366,20 +380,21 @@ impl WgpuContext {
         self.texture_handler.request_new(&id, builder, context);
     }
 
-    /// Get the font asset associated with the provided resource id.
-    /// If the font does not yet exist, this processes the font using the provided builder.
-    pub fn get_or_process_font(&mut self, id: &ResourceID, builder: &FontBuilder) -> Option<Arc<FontAsset>>{        
-        if self.font_handler.contains(&id) { 
-            return Some(Arc::clone(self.font_handler.get(&id)?)); 
-        } else {
-            let font_context = Arc::new(TextureContext {
-                queue: self.core.queue.clone(),
-                device: self.core.device.clone()
-            });
+    /// Get the font asset associated with the provided resource id, if exists.
+    pub fn get_font(&self, id: &ResourceID) -> Option<Arc<FontAsset>> {
+        self.font_handler.get(id).cloned()
+    }
 
-            self.font_handler.request_new(&id, builder, font_context);
-            return None;
-        }
+    /// Initialize a new font request
+    pub fn process_font(&mut self, id: &ResourceID, builder: &FontBuilder) {
+        if self.font_handler.contains(id) { return; }
+
+        let font_context = Arc::new(TextureContext {
+            queue: self.core.queue.clone(),
+            device: self.core.device.clone()
+        });
+
+        self.font_handler.request_new(&id, builder, font_context);
     }
 
     /// initialize a new sampler request

@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use std::{cell::Cell, collections::HashMap, sync::atomic::{ AtomicU32, Ordering }};
 
-use crate::graphics::{bind_group::{BindGroupLayoutBuilder, LayoutBindType, LayoutEntry, LayoutVisibility}, font::FontBuilder, wpgu_context::{ResourceBinding, ResourceType, ResourceUpdate}};
+use crate::graphics::{bind_group::{BindGroupLayoutBuilder, LayoutBindType, LayoutEntry, LayoutVisibility}, wpgu_context::{ResourceBinding, ResourceType, ResourceUpdate}};
 
 use super::{
     buffer::BufferBuilder, 
@@ -18,10 +18,10 @@ pub enum UniformBuilder {
     Buffer(BufferBuilder),
     /// Builder that creates a standard rgba texture
     Texture(TextureBuilder),
-    /// Builder that creates a font texture
-    Font(FontBuilder),
     /// Builder that creates a texture sampler
     Sampler(SamplerBuilder),
+    /// Builder is handled by an external system (for example, Fonts)
+    PreAllocated
 }
 
 /// Represents uniforms stored in a bind group, attached to a material
@@ -39,7 +39,7 @@ pub trait MaterialComponent {
     fn get_updated(&self) -> Option<ResourceUpdate> { None }
 }
 
-/// A high level description of how a mesh should look when rendered
+/// A high level description of how a primitive should look when rendered
 pub struct Material {
     id: u32,
     label: String,
@@ -163,7 +163,7 @@ impl MaterialComponent for ColorComponent {
     fn get_id(&self) -> ResourceID {
         ResourceID { 
             key: self.label.clone(), 
-            scope: ResourceScope::Entity,
+            scope: ResourceScope::Primitive,
             r_type: ResourceType::Uniform,
         }
     }
@@ -231,25 +231,21 @@ impl MaterialComponent for TextureComponent {
 /// A material component that holds a font (texture) atlas
 pub struct FontComponent {
     label: String,
-    path: String,
+    id: ResourceID,
 }
 
 impl FontComponent {
-    pub fn new(label: &str, path: &str) -> Self {
+    pub fn new(label: &str, id: ResourceID) -> Self {
         Self {
             label: label.to_string(),
-            path: path.to_string()
+            id,
         }
     }
 }
 
 impl MaterialComponent for FontComponent {
     fn get_id(&self) -> ResourceID {
-        ResourceID {
-            key: self.label.clone(),
-            scope: ResourceScope::Global,
-            r_type: ResourceType::Texture
-        }
+        self.id.clone()
     }
 
     fn get_vis_type(&self) -> (LayoutBindType, LayoutVisibility) {
@@ -257,9 +253,7 @@ impl MaterialComponent for FontComponent {
     }
 
     fn get_uniform_builder(&self) -> UniformBuilder {
-        let builder = FontBuilder::new(&self.path);
-
-        UniformBuilder::Font(builder)
+        UniformBuilder::PreAllocated
     }
 }
 

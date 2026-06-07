@@ -5,8 +5,8 @@ use crate::graphics::{data_table::DataTable};
 
 use super::handler::ResourceBuilder;
 
-pub const VERTEX_LOCATIONS: Range<u32> = 0..7;
-pub const INSTANCE_LOCATIONS: Range<u32> = 8..15;
+pub const VERTEX_LOCATIONS: Range<u32> = 0..5;
+pub const INSTANCE_LOCATIONS: Range<u32> = 6..15;
 
 /// vertex position shader location
 pub const POSITION_LOC: u32 = 0;
@@ -16,16 +16,16 @@ pub const UV_LOC: u32 = 1;
 pub const NORMAL_LOC: u32 = 2;
 
 /// instance transform shader location
-pub const TRANSFORM_LOC: u32 = 8;
-/// instance tint shader location
-pub const TINT_LOC: u32 = 12;
-/// instance spritesheet texture bounds shader location
-pub const UV_BOUNDS_LOC: u32 = 13;
+pub const TRANSFORM_LOC: u32 = 6;
+/// instance color tint shader location
+pub const TINT_LOC: u32 = 10;
+/// instance texture atlas bounds shader location
+pub const UV_BOUNDS_LOC: u32 = 12;
 
-/// represents attributes that can be packed into a vertex/instance buffer
+/// Represents attributes that can be packed into a vertex/instance buffer
 pub trait VertexAttribute: std::fmt::Debug {
     /// the name of the attribute the component represents
-    fn name(&self) -> &'static str;
+    fn name(&self) -> String;
     /// the attribute location in the shader
     fn location(&self) -> u32;
     /// The format of the attribute data in the shader
@@ -36,6 +36,7 @@ pub trait VertexAttribute: std::fmt::Debug {
     fn write_to(&self, idx: usize, vertices: &DataTable, buffer: &mut Vec<u8>);
 }
 
+/// Generates a wgpu Vertex Layout
 #[derive(Clone, Hash, Eq, PartialEq, Debug)]
 pub struct VertexLayoutBuilder {
     label: String,

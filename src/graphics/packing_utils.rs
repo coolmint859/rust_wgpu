@@ -84,7 +84,7 @@ impl PackingUtils {
     /// check if an instances attributes are dirty (changed this frame)
     fn is_instance_dirty(idx: usize, instances: &DataTable, components: &[Box<dyn VertexAttribute>]) -> bool {
         components.iter().any(|comp| {
-            instances.properties.get(comp.name())
+            instances.properties.get(&comp.name())
                 .map_or(false, |attr| {
                     if let Some(dirty_tracker) = attr.as_dirty_tracker() {
                         return dirty_tracker.is_dirty(idx)

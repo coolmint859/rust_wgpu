@@ -2,7 +2,19 @@ use std::{collections::HashMap, fs::File, io::Read, sync::Arc};
 
 use glam::Vec4;
 
-use crate::graphics::{entity::{Entity, RenderInfo}, geometry::{Geometry, PositionAttribute, UVAttribute}, handler::ResourceBuilder, instance::{InstanceGroup, TintAttribute, TransformAttribute, UVBoundsAttribute}, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, shape_factory::Shape2D, texture::{TextureBuilder, TextureContext}, transform::Transform};
+use crate::graphics::{geometry::{Geometry, PositionAttribute, UVAttribute}, handler::ResourceBuilder, instance::{InstanceGroup, TintAttribute, TransformAttribute, UVBoundsAttribute}, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, primitive::{Primitive, RenderInfo}, shape_factory::Shape2D, texture::{TextureBuilder, TextureContext}, transform::Transform, wpgu_context::{ResourceID, ResourceScope, ResourceType}};
+
+pub const TEXT_COLOR: &str = "text_color";
+pub const OUTLINE_COLOR: &str = "outline_color";
+
+/// Data struct describing the properties of a font's texture atlas
+#[derive(Clone, Debug)]
+pub struct FontDescriptor {
+    pub path: String,
+    pub atlas_size: u32,
+    pub scale: f32,
+    pub sdf_radius: f32,
+}
 
 #[derive(Clone, Debug)]
 /// Data struct holding information about character glyphs for use during rendering
@@ -15,7 +27,7 @@ pub struct CharacterGlyph {
     pub advance: f32,
 }
 
-/// The font glyph, atlas texture, and line heigh information used for rendering text.
+/// Handle for a font's atlas texture and how to read it.
 #[derive(Clone, Debug)]
 pub struct FontAsset {
     /// The handle to the gpu texture font atlas
@@ -26,67 +38,118 @@ pub struct FontAsset {
     pub line_height: f32,
 }
 
+impl FontAsset {
+    /// Calculate the size of text rendered with this font needed to fit within a certain width without scaling issues.
+    /// 
+    /// * 'text' - the text to calculate the size of
+    /// * 'width' - the width of the final rendered text in NDC.
+    pub fn calc_size(&self, text: &str, width: f32) -> f32 {
+        let lines: Vec<&str> = text.split('\n').collect();
+
+        let mut unscaled_width: f32 = 0.0;
+        for line in &lines {
+            let mut curr_line_width = 0.0;
+
+            for character in line.chars() {
+                if let Some(glyph) = self.glyphs.get(&character) {
+                    curr_line_width += glyph.advance;
+                }
+            }
+
+            if curr_line_width > unscaled_width {
+                unscaled_width = curr_line_width;
+            }
+        }
+
+        width / unscaled_width
+    }
+}
+
+/// Used to render text from a given ttf font file
+/// 
+/// Serves as a handle to the matching font texture atlas and glyph table.
+#[derive(Clone, Debug)]
 pub struct Font {
-    /// the path to the ttf file
-    pub path: String,
-    /// the entity that is used to render text used with this font
-    pub entity: Entity,
+    /// the unique id of this font
+    id: ResourceID,
+    /// the font description used to create the associated font asset
+    desc: FontDescriptor,
 }
 
 impl Font {
     pub fn new(path: &str) -> Self {
+        let id = ResourceID {
+            key: path.to_string(),
+            scope: ResourceScope::Global,
+            r_type: ResourceType::Font
+        };
+
+        Self {
+            desc: FontDescriptor { 
+                path: path.to_string(),
+                atlas_size: 1024, 
+                scale: 96.0, 
+                sdf_radius: 12.0 
+            },
+            id
+        }
+    }
+
+    /// Create a new primitive to represent this font during rendering
+    /// 
+    /// * 'instance_cap' - the total number of characters this font is allowed to render
+    pub fn create_primitive(&self, instance_cap: usize) -> Primitive {
         let geometry = Geometry::new(Shape2D::new().square())
             .with_attribute(PositionAttribute)
             .with_attribute(UVAttribute)
             .with_attribute(UVBoundsAttribute);
 
-        let group_capacity = 1000; // allow up to 1000 characters
-        let instances = InstanceGroup::new(0, group_capacity) // allow space for 1000 characters
-            .with_label(&format!("font::{}", path))
-            .with_attribute(TransformAttribute, Vec::<Transform>::with_capacity(group_capacity))
-            .with_attribute(TintAttribute, Vec::<Vec4>::with_capacity(group_capacity))
-            .with_attribute(UVBoundsAttribute, Vec::<Vec4>::with_capacity(group_capacity));
+        let instances = InstanceGroup::new(0, instance_cap) // allow space for 1000 characters
+            .with_label(&format!("font::{}", self.desc.path))
+            .with_attribute(TransformAttribute, Vec::<Transform>::with_capacity(instance_cap))
+            .with_attribute(TintAttribute(TEXT_COLOR, 10), Vec::<Vec4>::with_capacity(instance_cap))
+            .with_attribute(TintAttribute(OUTLINE_COLOR, 11), Vec::<Vec4>::with_capacity(instance_cap))
+            .with_attribute(UVBoundsAttribute, Vec::<Vec4>::with_capacity(instance_cap));
+
+        let label = format!("font::{}", self.desc.path);
         
-        let label = format!("font::{}", path);
-        let entity = Entity::from_group(
+        Primitive::from_group(
             &label, 
             geometry, 
-            MaterialPreset::Font(path.to_string()).with_label(&label), 
+            MaterialPreset::Font(self.id.clone()).with_label(&label), 
             instances, 
             RenderInfo {
                 shader_path: ShaderSpecPreset::Font.path(),
                 pipeline: RenderPipeline::Font.get()
             },
-        );
+        )
+    }
 
-        Self {
-            path: path.to_string(),
-            entity,
-        }
+    /// get the font builder associated with this font
+    pub fn get_builder(&self) -> FontBuilder {
+        FontBuilder::new(self.desc.clone())
+    }
+
+    /// get the id associated with this font
+    pub fn get_id(&self) -> ResourceID {
+        self.id.clone()
+    }
+
+    /// get a copy of the descriptor for this font
+    pub fn get_descriptor(&self) -> FontDescriptor {
+        self.desc.clone()
     }
 }
 
 /// Creates font atlases for use in rendering fonts
 #[derive(Clone, Debug)]
 pub struct FontBuilder {
-    /// the path to the ttf file for the font
-    path: String,
-    /// the size (width and height) of the sdf font atlas in pixels
-    atlas_size: u32, 
-    /// the scale of the individual characters when rasterized in pixels per em
-    font_scale: f32,
-    /// the radius of the sdf gradient in the atlas
-    sdf_radius: f32
+    desc: FontDescriptor,
 }
 
 impl FontBuilder {
-    pub fn new(path: &str) -> Self {
-        Self { 
-            path: path.to_string(),
-            atlas_size: 1024,
-            font_scale: 64.0,
-            sdf_radius: 8.0
-        } 
+    pub fn new(desc: FontDescriptor) -> Self {
+        Self { desc }
     }
 }
 
@@ -95,25 +158,25 @@ impl ResourceBuilder for FontBuilder {
     type Context = TextureContext;
 
     fn build(&self, context: Arc<Self::Context>) -> Result<Self::Output, String> {
-        let mut ttf_file = File::open(&self.path).map_err(|e| e.to_string())?;
+        let mut ttf_file = File::open(&self.desc.path).map_err(|e| e.to_string())?;
         let mut font_data = Vec::new();
         ttf_file.read_to_end(&mut font_data).map_err(|e| e.to_string())?;
 
         let font = fontdue::Font::from_bytes(font_data, fontdue::FontSettings::default())?;
-        let line_metrics = font.horizontal_line_metrics(self.font_scale)
+        let line_metrics = font.horizontal_line_metrics(self.desc.scale)
             .ok_or("Failed to read font line metrics.")?;
-        let line_height = line_metrics.new_line_size / self.font_scale;
+        let line_height = line_metrics.new_line_size / self.desc.scale;
 
         let (glyphs, atlas_bytes) = FontUtils::gen_sdf_font(
             font, 
-            self.atlas_size,
-            self.font_scale,
-            self.sdf_radius
+            self.desc.atlas_size,
+            self.desc.scale,
+            self.desc.sdf_radius
         );
 
         let atlas = TextureBuilder::new()
-            .with_label(&self.path)
-            .with_data(self.atlas_size, self.atlas_size, atlas_bytes)
+            .with_label(&self.desc.path)
+            .with_data(self.desc.atlas_size, self.desc.atlas_size, atlas_bytes)
             .with_format(wgpu::TextureFormat::R8Unorm)
             .build(context)?;
 
@@ -125,7 +188,7 @@ impl ResourceBuilder for FontBuilder {
 /// Helper functions for generating font atlases
 pub struct FontUtils;
 impl FontUtils {
-    /// Generate an signed distance feild (sdf) font atlas by rasterizing a ttf font
+    /// Generate an signed distance field (sdf) font atlas by rasterizing a ttf font
     /// 
     /// * 'font' - the font containing the glyph metrics
     /// * 'size' - the size of the bitmap atlas in pixels
@@ -170,19 +233,21 @@ impl FontUtils {
                 }
             }
 
+            let rad_plane_unit = radius / scale;
+
             // create character glyph for renderer
             let plane_bounds = Vec4::new(
-                metrics.bounds.xmin / scale, 
-                metrics.bounds.ymin / scale,
-                (metrics.bounds.xmin / scale) + (metrics.width as f32 / scale),
-                (metrics.bounds.ymin / scale) + (metrics.height as f32 / scale),
+                (metrics.bounds.xmin / scale) - rad_plane_unit, 
+                (metrics.bounds.ymin / scale) - rad_plane_unit,
+                (metrics.bounds.xmin / scale) + (metrics.width as f32 / scale) + rad_plane_unit,
+                (metrics.bounds.ymin / scale) + (metrics.height as f32 / scale) + rad_plane_unit,
             );
 
             let uv_bounds = Vec4::new(
-                glyph_x as f32 / size as f32,
-                glyph_y as f32 / size as f32,
-                metrics.width as f32 / size as f32,
-                metrics.height as f32 / size as f32,
+                (glyph_x as f32 - radius) / size as f32,
+                (glyph_y as f32 - radius) / size as f32,
+                (metrics.width as f32 + (radius * 2.0)) / size as f32,
+                (metrics.height as f32 + (radius * 2.0)) / size as f32,
             );
 
             glyphs.insert(character, CharacterGlyph {
@@ -194,19 +259,159 @@ impl FontUtils {
             current_x += metrics.width as u32 + (padding * 2)
         }
 
-        // let atlas = FontUtils::generate_sdf(&atlas_bitmap, size, radius);
+        let atlas = FontUtils::generate_sdf(&atlas_bitmap, size, radius);
 
-        (glyphs, atlas_bitmap)
+        (glyphs, atlas)
     }
 
-    // /// Generate an signed distance field (sdf) bitmap from an alpha mask bitmap.
-    // /// 
-    // /// * 'src' - the alpha mask bitmap as raw bytes
-    // /// * 'width' - the width of the sdf bitmap
-    // /// * 'height' - the height of the sdf bitmap
-    // /// * 'radius' - the max search distance for the edge gradient in the sdf bitmap
-    // fn generate_sdf(src: &[u8], size: u32, radius: f32) -> Vec<u8> {
+    /// Generate a signed distance field (sdf) bitmap from an alpha mask bitmap.
+    /// 
+    /// * 'src' - the alpha mask bitmap as raw bytes
+    /// * 'width' - the width of the sdf bitmap
+    /// * 'height' - the height of the sdf bitmap
+    /// * 'radius' - the max search distance for the edge gradient in the sdf bitmap
+    fn generate_sdf(src: &[u8], size: u32, radius: f32) -> Vec<u8> {
+        let width = size as i32;
+        let height = size as i32;
+        let total_pixels = (size * size) as usize;
 
-    //     Vec::new()
+        // We maintain two separate vector grids: one for the interior of the text, one for the exterior.
+        // This allows us to calculate an accurate "Signed" distance field from both sides of the edge.
+        let mut grid_inside = vec![Point::infinity(); total_pixels];
+        let mut grid_outside = vec![Point::infinity(); total_pixels];
+
+        // 1. INITIALIZATION PASS
+        for y in 0..height {
+            for x in 0..width {
+                let idx = (y * width + x) as usize;
+                // let is_inside = src[idx] > 127;
+
+                // if is_inside {
+                //     grid_inside[idx] = Point { dx: 0, dy: 0 };
+                // } else {
+                //     grid_outside[idx] = Point { dx: 0, dy: 0 };
+                // }
+
+                let alpha = src[idx] as f32 / 255.0;
+                if alpha > 0.0 && alpha < 1.0 {
+                    let offset = 0.5 - alpha;
+                    grid_inside[idx] = Point { dx: offset, dy: offset };
+                    grid_outside[idx] = Point { dx: -offset, dy: -offset }
+                }
+            }
+        }
+
+        // Helper macro/closure to perform sequential neighbor evaluation
+        let compare = |grid: &mut Vec<Point>, x: i32, y: i32, nx: i32, ny: i32| {
+            if nx >= 0 && nx < width && ny >= 0 && ny < height {
+                let curr_idx = (y * width + x) as usize;
+                let neigh_idx = (ny * width + nx) as usize;
+                
+                let n_pt = grid[neigh_idx];
+                // Calculate relative offset step to this neighbor
+                let new_pt = Point {
+                    dx: n_pt.dx + ((nx - x) as f32),
+                    dy: n_pt.dy + ((ny - y) as f32),
+                };
+
+                if new_pt.length_sq() < grid[curr_idx].length_sq() {
+                    grid[curr_idx] = new_pt;
+                }
+            }
+        };
+
+        // 2. THE FORWARD SWEEP (Top-to-Bottom, Left-to-Right)
+        for y in 0..height {
+            for x in 0..width {
+                // Check Left, Top-Left, Top, Top-Right
+                compare(&mut grid_inside, x, y, x - 1, y);
+                compare(&mut grid_inside, x, y, x - 1, y - 1);
+                compare(&mut grid_inside, x, y, x,     y - 1);
+                compare(&mut grid_inside, x, y, x + 1, y - 1);
+
+                compare(&mut grid_outside, x, y, x - 1, y);
+                compare(&mut grid_outside, x, y, x - 1, y - 1);
+                compare(&mut grid_outside, x, y, x,     y - 1);
+                compare(&mut grid_outside, x, y, x + 1, y - 1);
+            }
+        }
+
+        // 3. THE BACKWARD SWEEP (Bottom-to-Top, Right-to-Left)
+        for y in (0..height).rev() {
+            for x in (0..width).rev() {
+                // Check Right, Bottom-Right, Bottom, Bottom-Left
+                compare(&mut grid_inside, x, y, x + 1, y);
+                compare(&mut grid_inside, x, y, x + 1, y + 1);
+                compare(&mut grid_inside, x, y, x,     y + 1);
+                compare(&mut grid_inside, x, y, x - 1, y + 1);
+
+                compare(&mut grid_outside, x, y, x + 1, y);
+                compare(&mut grid_outside, x, y, x + 1, y + 1);
+                compare(&mut grid_outside, x, y, x,     y + 1);
+                compare(&mut grid_outside, x, y, x - 1, y + 1);
+            }
+        }
+
+        // 4. FINAL DISTANCE MAPPING PASS
+        let mut dest = vec![0u8; total_pixels];
+        for idx in 0..total_pixels {
+            let is_inside = src[idx] > 127;
+
+            // Calculate absolute true Euclidean distance from our displacement vectors
+            let dist = if is_inside {
+                (grid_outside[idx].length_sq() as f32).sqrt()
+            } else {
+                (grid_inside[idx].length_sq() as f32).sqrt()
+            };
+
+            // Clamp distance to our max radius boundary, and normalize 0.0 to 1.0
+            let normalized = (dist.min(radius) / radius) * 0.5;
+
+            // Apply our center-biased threshold (0.5 is the exact edge)
+            let final_sdf = if is_inside {
+                0.5 + normalized
+            } else {
+                0.5 - normalized
+            };
+
+            dest[idx] = (final_sdf * 255.0).clamp(0.0, 255.0) as u8;
+        }
+
+        dest
+    }
+
+    // fn compare_point(&mut points: Vec<Point>, x: i32, y: i32, nx: i32, ny: i32) {
+    //     if nx >= 0 && nx < width && ny >= 0 && ny < height {
+    //         let curr_idx = (y * width + x) as usize;
+    //         let neigh_idx = (ny * width + nx) as usize;
+            
+    //         let n_pt = grid[neigh_idx];
+    //         // Calculate relative offset step to this neighbor
+    //         let new_pt = Point {
+    //             dx: n_pt.dx + (nx - x),
+    //             dy: n_pt.dy + (ny - y),
+    //         };
+
+    //         if new_pt.length_sq() < grid[curr_idx].length_sq() {
+    //             grid[curr_idx] = new_pt;
+    //         }
+    //     }
     // }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Point {
+    dx: f32,
+    dy: f32,
+}
+
+impl Point {
+    // An infinite/maximum distance marker for initialization
+    fn infinity() -> Self {
+        Self { dx: 9999.0, dy: 9999.0 }
+    }
+
+    fn length_sq(&self) -> f32 {
+        self.dx * self.dx + self.dy * self.dy
+    }
 }

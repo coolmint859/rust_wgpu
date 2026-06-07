@@ -13,7 +13,7 @@ pub mod handler;
 pub mod texture;
 pub mod buffer;
 pub mod material;
-pub mod entity;
+pub mod primitive;
 pub mod shape_factory;
 pub mod geometry;
 pub mod shader;
