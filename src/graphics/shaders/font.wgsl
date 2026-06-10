@@ -52,9 +52,11 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let distance = textureSample(font_atlas, u_sampler, in.tex_coords).r;
+    // return vec4<f32>(distance, distance, distance, 1.0);
+
     let change = fwidth(distance);
     let text_edge = 0.5;
-    let outline_edge = 0.4;
+    let outline_edge = 0.3;
 
     let text_alpha = smoothstep(text_edge - change, text_edge + change, distance);
     let outline_alpha = smoothstep(outline_edge - change, outline_edge + change, distance) * in.o_color.a;

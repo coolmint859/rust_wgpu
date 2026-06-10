@@ -119,19 +119,20 @@ impl Driver for Game {
         // renderer.set_bg_color(0.8, 0.8, 0.8);
         renderer.set_camera(&mut self.camera);
 
-        // renderer.draw(&mut self.flags);
+        renderer.draw(&mut self.flags);
 
         renderer.draw_text(
-            "You're gay.",
+            "The quick brown fox jumped over the lazy dog.",
             &self.font,
             TextOptions {
-                pos: Vec3::new(-1.0, -0.0, 0.0),
-                width: 2.0,
+                pos: Vec3::new(-1.25, 0.0, 0.0),
+                width: 2.5,
                 text_color: Vec4::ONE,
-                outline_color: Some(Vec4::new(1.0, 1.0, 0.0, 1.0))
+                // outline_color: None
+                outline_color: Some(Vec4::new(0.0, 0.0, 0.0, 1.0))
             }
         );
 
-        self.particles.render(renderer);
+        // self.particles.render(renderer);
     }
 }

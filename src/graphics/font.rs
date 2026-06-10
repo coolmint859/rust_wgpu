@@ -1,8 +1,8 @@
 use std::{collections::HashMap, fs::File, io::Read, sync::Arc};
-
+use rayon::prelude::*;
 use glam::Vec4;
 
-use crate::graphics::{geometry::{Geometry, PositionAttribute, UVAttribute}, handler::ResourceBuilder, instance::{InstanceGroup, TintAttribute, TransformAttribute, UVBoundsAttribute}, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, primitive::{Primitive, RenderInfo}, shape_factory::Shape2D, texture::{TextureBuilder, TextureContext}, transform::Transform, wpgu_context::{ResourceID, ResourceScope, ResourceType}};
+use crate::graphics::{geometry::{Geometry, PositionAttribute, UVAttribute}, handler::{BuilderType, ResourceBuilder}, instance::{InstanceGroup, TintAttribute, TransformAttribute, UVBoundsAttribute}, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, primitive::{Primitive, RenderInfo}, shape_factory::Shape2D, texture::{TextureBuilder, TextureContext}, transform::Transform, wpgu_context::{ResourceID, ResourceScope, ResourceType}};
 
 pub const TEXT_COLOR: &str = "text_color";
 pub const OUTLINE_COLOR: &str = "outline_color";
@@ -157,6 +157,8 @@ impl ResourceBuilder for FontBuilder {
     type Output = Arc<FontAsset>;
     type Context = TextureContext;
 
+    fn builder_type(&self) -> super::handler::BuilderType { BuilderType::Blocking }
+
     fn build(&self, context: Arc<Self::Context>) -> Result<Self::Output, String> {
         let mut ttf_file = File::open(&self.desc.path).map_err(|e| e.to_string())?;
         let mut font_data = Vec::new();
@@ -167,7 +169,7 @@ impl ResourceBuilder for FontBuilder {
             .ok_or("Failed to read font line metrics.")?;
         let line_height = line_metrics.new_line_size / self.desc.scale;
 
-        let (glyphs, atlas_bytes) = FontUtils::gen_sdf_font(
+        let (glyphs, atlas_bytes) = FontUtils::gen_font_atlas(
             font, 
             self.desc.atlas_size,
             self.desc.scale,
@@ -181,6 +183,7 @@ impl ResourceBuilder for FontBuilder {
             .build(context)?;
 
         let font_asset = FontAsset { atlas, glyphs, line_height };
+
         return Ok(Arc::new(font_asset));
     }
 }
@@ -194,74 +197,104 @@ impl FontUtils {
     /// * 'size' - the size of the bitmap atlas in pixels
     /// * 'scale' - the size to rasterize the characters with, in pixels per em unit
     /// * 'radius' - spacing between bitmap characters
-    pub fn gen_sdf_font(font: fontdue::Font, size: u32, scale: f32, radius: f32) -> (HashMap<char, CharacterGlyph>, Vec<u8>) {
-        let mut atlas_bitmap = vec![0u8; (size * size) as usize];
-        let mut glyphs = HashMap::new();
-
+    pub fn gen_font_atlas(font: fontdue::Font, size: u32, scale: f32, radius: f32) -> (HashMap<char, CharacterGlyph>, Vec<u8>) {
         let padding = radius as u32;
+        let spacing: u32 = 2; // spacing between glyphs in the atlas to prevent bleeding
+
+        let characters: Vec<u8> = (32u8..127).collect();
+        let sdf_glyphs: Vec<SdfGlyph> = characters
+            .into_par_iter()
+            .map(|u_char| {
+                let ch = u_char as char;
+
+                let (metrics, bitmap) = font.rasterize(ch, scale);
+
+                let padded_width = metrics.width as u32 + (padding * 2);
+                let padded_height = metrics.height as u32 + (padding * 2);
+
+                // Pad the raw character bitmap and do sdf processing
+                let mut padded_bitmap = vec![0u8; (padded_width * padded_height) as usize];
+                for r in 0..metrics.height {
+                    for c in 0..metrics.width {
+                        let src_idx = r * metrics.width + c;
+                        let pad_idx = (r + padding as usize) * padded_width as usize + c + padding as usize;
+
+                        padded_bitmap[pad_idx] = bitmap[src_idx];
+                    }
+                }
+
+                let sdf_bitmap = FontUtils::generate_sdf(&padded_bitmap, padded_width, padded_height, radius);
+
+                SdfGlyph {
+                    ch, 
+                    metrics,
+                    bitmap: sdf_bitmap,
+                    width: padded_width,
+                    height: padded_height
+                }
+            })
+            .collect();
+
+        FontUtils::blit_glyphs(sdf_glyphs, spacing, size, radius)
+    }
+
+    /// blit character glyphs into a font atlas, and convert metrics into glyph bounds
+    fn blit_glyphs(glyphs: Vec<SdfGlyph>, spacing: u32, size: u32, radius: f32) -> (HashMap<char, CharacterGlyph>, Vec<u8>){
+        let mut atlas_bitmap = vec![0u8; (size * size) as usize];
+        let mut glyph_table = HashMap::new();
+
         let mut current_x: u32 = 0;
         let mut current_y: u32 = 0;
         let mut max_row_height: u32 = 0;
 
-        for c in 32..128u8 {
-            let character = c as char;
-            let (metrics, bitmap) = font.rasterize(character, scale);
-
-            // wrap the grid to the next row
-            if current_x + metrics.width as u32 + (padding * 2) >= size {
+        for glyph in glyphs {
+            // wrap to next row and add 2px spacing between glyphs
+            if current_x + glyph.width + spacing > size {
                 current_x = 0;
-                current_y += max_row_height + (padding * 2);
+                current_y += max_row_height + spacing;
                 max_row_height = 0;
             }
+            max_row_height = max_row_height.max(glyph.height);
 
-            max_row_height = max_row_height.max(metrics.height as u32);
+            // blit character sdf bitmap into atlas
+            for r in 0..glyph.height {
+                for c in 0..glyph.width {
+                    let src_idx = (r * glyph.width + c) as usize;
 
-            let glyph_x = current_x + padding;
-            let glyph_y = current_y + padding;
+                    let atlas_x = current_x + c;
+                    let atlas_y = current_y + r;
+                    let atlas_idx = (atlas_y * size + atlas_x) as usize;
 
-            if glyph_y + metrics.height as u32 > size {
-                println!("[Font Error] Texture overflow for character '{character}' (codepoint #{c})");
-                break;
-            }
-
-            // merge character bitmaps into the main atlas
-            for row in 0..metrics.height {
-                for col in 0..metrics.width {
-                    let src_idx = row * metrics.width + col;
-                    let dest_idx = ((glyph_y + row as u32) * size + (glyph_x + col as u32)) as usize;
-                    atlas_bitmap[dest_idx] = bitmap[src_idx];
+                    atlas_bitmap[atlas_idx] = glyph.bitmap[src_idx];
                 }
             }
 
-            let rad_plane_unit = radius / scale;
-
-            // create character glyph for renderer
-            let plane_bounds = Vec4::new(
-                (metrics.bounds.xmin / scale) - rad_plane_unit, 
-                (metrics.bounds.ymin / scale) - rad_plane_unit,
-                (metrics.bounds.xmin / scale) + (metrics.width as f32 / scale) + rad_plane_unit,
-                (metrics.bounds.ymin / scale) + (metrics.height as f32 / scale) + rad_plane_unit,
-            );
-
+            // insert character glyph metrics into glyph table
             let uv_bounds = Vec4::new(
-                (glyph_x as f32 - radius) / size as f32,
-                (glyph_y as f32 - radius) / size as f32,
-                (metrics.width as f32 + (radius * 2.0)) / size as f32,
-                (metrics.height as f32 + (radius * 2.0)) / size as f32,
+                current_x as f32 / size as f32,
+                current_y as f32 / size as f32,
+                glyph.width as f32 / size as f32,
+                glyph.height as f32 / size as f32,
             );
 
-            glyphs.insert(character, CharacterGlyph {
-                plane_bounds, 
-                uv_bounds, 
-                advance: metrics.advance_width / scale
+            let plane_bounds = Vec4::new(
+                glyph.metrics.bounds.xmin as f32 - radius,
+                glyph.metrics.bounds.ymin as f32 - radius,
+                glyph.metrics.width as f32 + (radius * 2.0),
+                glyph.metrics.height as f32 + (radius * 2.0)
+            );
+
+            glyph_table.insert(glyph.ch, CharacterGlyph {
+                plane_bounds,
+                uv_bounds,
+                advance: glyph.metrics.advance_width
             });
 
-            current_x += metrics.width as u32 + (padding * 2)
+            // advance x coord for next character
+            current_x += glyph.width + spacing;
         }
 
-        let atlas = FontUtils::generate_sdf(&atlas_bitmap, size, radius);
-
-        (glyphs, atlas)
+        (glyph_table, atlas_bitmap)
     }
 
     /// Generate a signed distance field (sdf) bitmap from an alpha mask bitmap.
@@ -270,33 +303,25 @@ impl FontUtils {
     /// * 'width' - the width of the sdf bitmap
     /// * 'height' - the height of the sdf bitmap
     /// * 'radius' - the max search distance for the edge gradient in the sdf bitmap
-    fn generate_sdf(src: &[u8], size: u32, radius: f32) -> Vec<u8> {
-        let width = size as i32;
-        let height = size as i32;
-        let total_pixels = (size * size) as usize;
+    fn generate_sdf(src: &[u8], width: u32, height: u32, radius: f32) -> Vec<u8> {
+        let width = width as i32;
+        let height = height as i32;
+        let total_pixels = (width * height) as usize;
 
         // We maintain two separate vector grids: one for the interior of the text, one for the exterior.
         // This allows us to calculate an accurate "Signed" distance field from both sides of the edge.
         let mut grid_inside = vec![Point::infinity(); total_pixels];
         let mut grid_outside = vec![Point::infinity(); total_pixels];
 
-        // 1. INITIALIZATION PASS
         for y in 0..height {
             for x in 0..width {
                 let idx = (y * width + x) as usize;
-                // let is_inside = src[idx] > 127;
-
-                // if is_inside {
-                //     grid_inside[idx] = Point { dx: 0, dy: 0 };
-                // } else {
-                //     grid_outside[idx] = Point { dx: 0, dy: 0 };
-                // }
-
                 let alpha = src[idx] as f32 / 255.0;
-                if alpha > 0.0 && alpha < 1.0 {
-                    let offset = 0.5 - alpha;
-                    grid_inside[idx] = Point { dx: offset, dy: offset };
-                    grid_outside[idx] = Point { dx: -offset, dy: -offset }
+                
+                if alpha > 0.5 { 
+                    grid_inside[idx] = Point { dx: 0.0, dy: 0.0 };
+                } else {
+                    grid_outside[idx] = Point { dx: 0.0, dy: 0.0 };
                 }
             }
         }
@@ -307,7 +332,7 @@ impl FontUtils {
                 let curr_idx = (y * width + x) as usize;
                 let neigh_idx = (ny * width + nx) as usize;
                 
-                let n_pt = grid[neigh_idx];
+                let n_pt = unsafe { *grid.get_unchecked(neigh_idx) };
                 // Calculate relative offset step to this neighbor
                 let new_pt = Point {
                     dx: n_pt.dx + ((nx - x) as f32),
@@ -352,51 +377,36 @@ impl FontUtils {
             }
         }
 
-        // 4. FINAL DISTANCE MAPPING PASS
-        let mut dest = vec![0u8; total_pixels];
-        for idx in 0..total_pixels {
-            let is_inside = src[idx] > 127;
+        let inv_radius = 1.0 / radius;
+        let dest: Vec<u8> = grid_inside
+            .into_iter()
+            .enumerate()
+            .map(|(i, point)| {
+                let is_inside = src[i] > 127;
 
-            // Calculate absolute true Euclidean distance from our displacement vectors
-            let dist = if is_inside {
-                (grid_outside[idx].length_sq() as f32).sqrt()
-            } else {
-                (grid_inside[idx].length_sq() as f32).sqrt()
-            };
+                // Calculate absolute true Euclidean distance from our displacement vectors
+                let dist = if is_inside {
+                    grid_outside[i].length_sq().sqrt()
+                } else {
+                    point.length_sq().sqrt()
+                };
 
-            // Clamp distance to our max radius boundary, and normalize 0.0 to 1.0
-            let normalized = (dist.min(radius) / radius) * 0.5;
+                // Clamp distance to our max radius boundary, and normalize 0.0 to 1.0
+                let normalized = dist.min(radius) * inv_radius * 0.5;
 
-            // Apply our center-biased threshold (0.5 is the exact edge)
-            let final_sdf = if is_inside {
-                0.5 + normalized
-            } else {
-                0.5 - normalized
-            };
+                // Apply our center-biased threshold (0.5 is the exact edge)
+                let final_sdf = if is_inside {
+                    0.5 + normalized
+                } else {
+                    0.5 - normalized
+                };
 
-            dest[idx] = (final_sdf * 255.0).clamp(0.0, 255.0) as u8;
-        }
+                (final_sdf * 255.0).round() as u8
+            })
+            .collect();
 
         dest
     }
-
-    // fn compare_point(&mut points: Vec<Point>, x: i32, y: i32, nx: i32, ny: i32) {
-    //     if nx >= 0 && nx < width && ny >= 0 && ny < height {
-    //         let curr_idx = (y * width + x) as usize;
-    //         let neigh_idx = (ny * width + nx) as usize;
-            
-    //         let n_pt = grid[neigh_idx];
-    //         // Calculate relative offset step to this neighbor
-    //         let new_pt = Point {
-    //             dx: n_pt.dx + (nx - x),
-    //             dy: n_pt.dy + (ny - y),
-    //         };
-
-    //         if new_pt.length_sq() < grid[curr_idx].length_sq() {
-    //             grid[curr_idx] = new_pt;
-    //         }
-    //     }
-    // }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -414,4 +424,13 @@ impl Point {
     fn length_sq(&self) -> f32 {
         self.dx * self.dx + self.dy * self.dy
     }
+}
+
+/// temporary struct generated by rayon threads.
+pub struct SdfGlyph {
+    ch: char,
+    metrics: fontdue::Metrics,
+    bitmap: Vec<u8>,
+    width: u32,
+    height: u32,
 }

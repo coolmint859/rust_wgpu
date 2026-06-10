@@ -203,8 +203,14 @@ impl Renderer {
                 }
 
                 if let Some(glyph) = font_asset.glyphs.get(&character) {
+                    // prevent spaces from taking up an instance.
+                    if character == ' ' {
+                        cursor.x += glyph.advance * size;
+                        continue; 
+                    }
+
                     let outline_color = options.outline_color.unwrap_or(Vec4::ZERO);
-                    let instance = Renderer::create_char_instance(template.clone(), glyph, cursor, size, options.text_color, outline_color);
+                    let instance = Renderer::create_char_instance(template.clone(), glyph, &cursor, size, options.text_color, outline_color);
                     font_prim.instances.add_instance(instance);
 
                     cursor.x += glyph.advance * size;
@@ -213,17 +219,17 @@ impl Renderer {
         }
     }
 
-    /// create a new character instance for the font entity from the provided glyph
+    /// create a new character instance for the font primitive from the provided glyph
     pub fn create_char_instance(
         mut template: InstanceTemplate, 
         glyph: &CharacterGlyph, 
-        cursor: Vec3, 
+        cursor: &Vec3, 
         size: f32, 
         text_color: Vec4,
         outline_color: Vec4
     ) -> InstanceTemplate {
-        let x_scale = (glyph.plane_bounds.z - glyph.plane_bounds.x) * size;
-        let y_scale = (glyph.plane_bounds.w - glyph.plane_bounds.y) * size;
+        let x_scale = glyph.plane_bounds.z * size;
+        let y_scale = glyph.plane_bounds.w * size;
         
         let x_pos = cursor.x + (glyph.plane_bounds.x * size) + (x_scale * 0.5);
         let y_pos = cursor.y + (glyph.plane_bounds.y * size) + (y_scale * 0.5);

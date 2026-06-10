@@ -6,10 +6,21 @@ use std::{
     time::Instant
 };
 
+/// Specifies the type of work that a ResourceBuilder does.
+pub enum BuilderType {
+    /// For builders that do work that is mostly non-blocking, or io-bound (i.e. reading a file)
+    NonBlocking,
+    /// For builders that do work that is mostly blocking, or cpu-bound (i.e. procedural texture generation)
+    Blocking
+}
+
 /// Represents the builder pattern for resources
-pub trait ResourceBuilder: Send + Clone + 'static {
+pub trait ResourceBuilder: Send + Sync + Clone + 'static {
     type Output: Send + 'static;
     type Context: Send + Sync + 'static;
+
+    /// Get the type of work (io-bound vs cpu-bound) that this builder does. Default is io-bound.
+    fn builder_type(&self) -> BuilderType { BuilderType::NonBlocking }
 
     /// Contruct the Output instance with the settings provided
     fn build(&self, context: Arc<Self::Context>) -> Result<Self::Output, String>;
@@ -141,10 +152,21 @@ where
 
         let tx = self.tx.clone();
 
-        tokio::task::spawn(async move {
-            let result = builder_cpy.build(context_cpy); 
-            let _ = tx.send((key_cpy, result));
-        });
+        match builder.builder_type() {
+            BuilderType::NonBlocking => {
+                tokio::task::spawn(async move {
+                    let result = builder_cpy.build(context_cpy); 
+                    let _ = tx.send((key_cpy, result));
+                });
+            }
+            BuilderType::Blocking => {
+                tokio::task::spawn_blocking(move || {
+                    let result = builder_cpy.build(context_cpy); 
+                    let _ = tx.send((key_cpy, result));
+                });
+            }
+        }
+        
     }
     
     /// Request a new resource and wait for it's completion, blocking the calling thread until complete.
