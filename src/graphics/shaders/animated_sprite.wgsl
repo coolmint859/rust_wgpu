@@ -20,7 +20,7 @@ struct InstanceInput {
     @location(8) model_col_2: vec4<f32>,
     @location(9) model_col_3: vec4<f32>,
     @location(10) tint: vec4<f32>,
-    @location(12) bounds: vec4<f32>,
+    @location(11) bounds: vec4<f32>,
 }
 
 struct VertexOutput {

@@ -2,10 +2,7 @@ use std::{collections::HashMap, fs::File, io::Read, sync::Arc};
 use rayon::prelude::*;
 use glam::Vec4;
 
-use crate::graphics::{geometry::{Geometry, PositionAttribute, UVAttribute}, handler::{BuilderType, ResourceBuilder}, instance::{InstanceGroup, TintAttribute, TransformAttribute, UVBoundsAttribute}, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, primitive::{Primitive, RenderInfo}, shape_factory::Shape2D, texture::{TextureBuilder, TextureContext}, transform::Transform, wpgu_context::{ResourceID, ResourceScope, ResourceType}};
-
-pub const TEXT_COLOR: &str = "text_color";
-pub const OUTLINE_COLOR: &str = "outline_color";
+use crate::graphics::{geometry::Geometry, handler::{BuilderType, ResourceBuilder}, instance::InstanceGroup, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, primitive::{Primitive, RenderInfo}, shape_factory::Shape2D, texture::{TextureBuilder, TextureContext}, transform::Transform, vertex::{TransformAttribute, Vec2Attribute, Vec3Attribute, Vec4Attribute, attr}, wpgu_context::{ResourceID, ResourceScope, ResourceType}};
 
 /// Data struct describing the properties of a font's texture atlas
 #[derive(Clone, Debug)]
@@ -100,16 +97,15 @@ impl Font {
     /// * 'instance_cap' - the total number of characters this font is allowed to render
     pub fn create_primitive(&self, instance_cap: usize) -> Primitive {
         let geometry = Geometry::new(Shape2D::new().square())
-            .with_attribute(PositionAttribute)
-            .with_attribute(UVAttribute)
-            .with_attribute(UVBoundsAttribute);
+            .with_attribute(Vec3Attribute(attr::POSITION))
+            .with_attribute(Vec2Attribute(attr::UV_COORDS));
 
         let instances = InstanceGroup::new(0, instance_cap) // allow space for 1000 characters
             .with_label(&format!("font::{}", self.desc.path))
             .with_attribute(TransformAttribute, Vec::<Transform>::with_capacity(instance_cap))
-            .with_attribute(TintAttribute(TEXT_COLOR, 10), Vec::<Vec4>::with_capacity(instance_cap))
-            .with_attribute(TintAttribute(OUTLINE_COLOR, 11), Vec::<Vec4>::with_capacity(instance_cap))
-            .with_attribute(UVBoundsAttribute, Vec::<Vec4>::with_capacity(instance_cap));
+            .with_attribute(Vec4Attribute(attr::TEXT_COLOR), Vec::<Vec4>::with_capacity(instance_cap))
+            .with_attribute(Vec4Attribute(attr::OUTLINE_COLOR), Vec::<Vec4>::with_capacity(instance_cap))
+            .with_attribute(Vec4Attribute(attr::UV_BOUNDS), Vec::<Vec4>::with_capacity(instance_cap));
 
         let label = format!("font::{}", self.desc.path);
         

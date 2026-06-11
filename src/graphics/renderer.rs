@@ -4,7 +4,7 @@ use std::{collections::HashMap, sync::Arc};
 use glam::{Mat4, Quat, Vec3, Vec4};
 use winit::window::Window;
 
-use crate::graphics::{font::{CharacterGlyph, Font, OUTLINE_COLOR, TEXT_COLOR}, geometry::Geometry, init_state::StateInit, instance::{InstanceGroup, InstanceTemplate, TRANSFORM_ATTR, UV_BOUNDS_ATTR}, primitive::Primitive, render_pipeline::RenderPipelineBuilder, transform::Transform, wpgu_context::{GeometryID, ResourceID, ResourceUpdate, WgpuContext}};
+use crate::graphics::{font::{CharacterGlyph, Font}, geometry::Geometry, init_state::StateInit, instance::{InstanceGroup, InstanceTemplate}, primitive::Primitive, render_pipeline::RenderPipelineBuilder, transform::Transform, vertex::attr, wpgu_context::{GeometryID, ResourceID, ResourceUpdate, WgpuContext}};
 
 use super::{
     buffer::BufferBuilder, 
@@ -240,10 +240,10 @@ impl Renderer {
             Vec3::new(x_scale, y_scale, 1.0)
         );
 
-        template.set_attribute(TRANSFORM_ATTR, transform);
-        template.set_attribute(UV_BOUNDS_ATTR, glyph.uv_bounds);
-        template.set_attribute(TEXT_COLOR, text_color);
-        template.set_attribute(OUTLINE_COLOR, outline_color);
+        template.set_attribute(attr::TRANSFORM, transform);
+        template.set_attribute(attr::UV_BOUNDS, glyph.uv_bounds);
+        template.set_attribute(attr::TEXT_COLOR, text_color);
+        template.set_attribute(attr::OUTLINE_COLOR, outline_color);
 
         template
     }

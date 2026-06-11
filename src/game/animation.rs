@@ -2,9 +2,7 @@
 
 use glam::Vec4;
 
-use crate::graphics::{ data_table::{DataTable, DirtyVec}, primitive::Primitive, instance::{UV_BOUNDS_ATTR}};
-
-pub const FADE_COLOR: &str = "fade_color";
+use crate::graphics::{ data_table::{DataTable, DirtyVec}, primitive::Primitive, vertex::attr};
 
 /// Represents animation behaviors on an entity orchestrated by an AnimationController
 pub trait Animation {
@@ -121,7 +119,7 @@ impl Animation for TextureAnimation {
         if self.last_frame == curr_frame { return; }
         self.last_frame = curr_frame;
 
-        if let Some(uv_bounds) = instances.get_property_mut::<DirtyVec<Vec4>>(UV_BOUNDS_ATTR) {
+        if let Some(uv_bounds) = instances.get_property_mut::<DirtyVec<Vec4>>(attr::UV_BOUNDS) {
             for bounds in uv_bounds.iter_mut() {
                 bounds.set(*self.sheet.get(self.last_frame));
             }
@@ -178,7 +176,7 @@ impl Animation for FadeAnimation {
     fn update(&mut self, instances: &mut DataTable, _curr_frame: usize, et: f32) {
         let alpha = self.mode.get_alpha(et, self.duration);
 
-        if let Some(tints) = instances.get_property_mut::<DirtyVec<Vec4>>(FADE_COLOR) {
+        if let Some(tints) = instances.get_property_mut::<DirtyVec<Vec4>>(attr::TINT_COLOR) {
             for tint in tints.iter_mut() {
                 tint.w = alpha;
             }

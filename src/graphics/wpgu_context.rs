@@ -198,12 +198,8 @@ impl WgpuContext {
                 self.bg_layout_handler.request_new(&layout, layout, device_cpy);
             }
 
-            let builders = spec.build_vertex_layouts();
-            if let Some(v_builder) = builders.vertex {
-                self.vertex_layout_handler.request_new(&v_builder, &v_builder,Arc::new(()));
-            }
-            if let Some(i_builder) = builders.instance {
-                self.vertex_layout_handler.request_new(&i_builder, &i_builder, Arc::new(()));
+            for vt_layout in &spec.vt_layouts {
+                self.vertex_layout_handler.request_new(&vt_layout, vt_layout, Arc::new(()));
             }
         } else {
             let builder = ShaderSpecPreset::from_known_path(path).unwrap();
@@ -236,29 +232,19 @@ impl WgpuContext {
             }
         }
 
-        let vertex_builders = shader_spec.build_vertex_layouts();
         let mut vertex_layouts = Vec::new();
-        let mut vl_ready = true;
-        if let Some(vertex) = &vertex_builders.vertex {
-            if let Some(layout) = self.vertex_layout_handler.get(vertex) {
+        let mut vt_layouts_ready = true;
+        for vt_builder in &shader_spec.vt_layouts {
+            if let Some(layout) = self.vertex_layout_handler.get(vt_builder) {
                 vertex_layouts.push(Arc::clone(layout));
             } else {
-                vl_ready = false;
-            }
-        }
-
-        let mut il_ready = true;
-        if let Some(instance) = &vertex_builders.instance {
-            if let Some(layout) = self.vertex_layout_handler.get(instance) {
-                vertex_layouts.push(Arc::clone(layout));
-            } else {
-                il_ready = false;
+                vt_layouts_ready = false;
             }
         }
 
         let bgl_ready = bg_layouts.len() == shader_spec.bg_layouts.len();
 
-        if bgl_ready && vl_ready && il_ready {
+        if bgl_ready && vt_layouts_ready {
             let rpip_context = Arc::new(
                 RenderPipelineContext {
                     device: Arc::clone(&self.core.device),

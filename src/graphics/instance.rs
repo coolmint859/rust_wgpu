@@ -1,12 +1,7 @@
 #![allow(dead_code)]
 use std::collections::HashMap;
 
-use glam::Vec4;
-
-use crate::graphics::{buffer::BufferBuilder, data_table::{DataTable, DataView, DirtyVec, DynVec}, packing_utils::PackingUtils, transform::Transform, vertex::{TRANSFORM_LOC, UV_BOUNDS_LOC, VertexAttribute, VertexLayoutBuilder}, wpgu_context::ResourceUpdate};
-
-pub const TRANSFORM_ATTR: &str = "transform";
-pub const UV_BOUNDS_ATTR: &str = "uv_bounds";
+use crate::graphics::{buffer::BufferBuilder, data_table::{DataTable, DataView, DirtyVec, DynVec}, transform::Transform, vertex::{TransformAttribute, VertexAttribute, VertexAttributeLayout, VertexLayoutBuilder, attr}, wpgu_context::ResourceUpdate};
 
 /// A modifiable template for new entity instances
 pub struct InstanceTemplate {
@@ -33,12 +28,12 @@ impl InstanceTemplate {
 
     /// Add a transform attribute to this instance
     pub fn with_transform(self, transform: Transform) -> Self {
-        self.with_attribute(TRANSFORM_ATTR, transform)
+        self.with_attribute(attr::TRANSFORM, transform)
     }
 
     /// Update the transform attribute for this instance
     pub fn set_transform(&mut self, transform: Transform) {
-        self.set_attribute(TRANSFORM_ATTR, transform);
+        self.set_attribute(attr::TRANSFORM, transform);
     }
 
     /// Add a component to this instance template
@@ -186,7 +181,7 @@ pub struct InstanceGroup {
     label: String,
     instances: DataTable,
     count: usize,
-    attributes: Vec<Box<dyn VertexAttribute>>,
+    attributes: VertexAttributeLayout,
 }
 
 impl InstanceGroup {
@@ -197,7 +192,7 @@ impl InstanceGroup {
         Self {
             label: "instances".to_string(),
             instances: DataTable::new(capacity),
-            attributes: Vec::new(),
+            attributes: VertexAttributeLayout::as_instance(),
             count: init_count,
         }
     }
@@ -240,7 +235,7 @@ impl InstanceGroup {
 
             dirty_vec
         });
-        self.attributes.push(Box::new(attribute));
+        self.attributes.add_attribute(attribute);
     }
 
     /// Get an instance in the group at the specfied index, if exists.
@@ -309,13 +304,13 @@ impl InstanceGroup {
 
     /// Get the vertex layout builder defined by this Geometry
     pub fn get_layout_builder(&self) -> VertexLayoutBuilder {
-        PackingUtils::layout_builder(wgpu::VertexStepMode::Instance, &self.attributes)
+        self.attributes.get_builder(&self.label)
     }
 
     /// Get the builder for the instance buffer used by this instance group.
     pub fn get_buffer_builder(&mut self) -> BufferBuilder {
-        let instance_bytes = PackingUtils::pack(self.count, &mut self.instances, &self.attributes);
-        let buffer_cap = self.instances.capacity * PackingUtils::instance_stride(&self.attributes);
+        let instance_bytes = self.attributes.pack(self.count, &mut self.instances);
+        let buffer_cap = self.instances.capacity * self.attributes.stride();
         
         BufferBuilder::as_vertex()
             .with_label(&self.label)
@@ -325,61 +320,6 @@ impl InstanceGroup {
 
     /// Get all updates on the instance data in a vector
     pub fn get_updated(&mut self) -> Vec<ResourceUpdate> {
-        PackingUtils::get_updated(self.count, &mut self.instances, &self.attributes)
-    }
-}
-
-/// Instance attribute for transforms (world matrix)
-#[derive(Clone, Hash, PartialEq, Eq, Debug)]
-pub struct TransformAttribute;
-
-impl VertexAttribute for TransformAttribute {
-    fn name(&self) -> String { TRANSFORM_ATTR.to_string() }
-    fn location(&self) -> u32 { TRANSFORM_LOC }
-    fn format(&self) -> wgpu::VertexFormat { wgpu::VertexFormat::Float32x4 }
-    fn attr_count(&self) -> u32 { 4 }
-
-    fn write_to(&self, idx: usize, instances: &DataTable, buffer: &mut Vec<u8>) {
-        if let Some(transform) = instances.get_property::<DirtyVec<Transform>>(&self.name())
-            .and_then(|transforms| transforms.get(idx)) 
-        {
-            buffer.extend_from_slice(bytemuck::bytes_of(&transform.to_updated()));
-        }
-    }
-}
-
-/// Instance attribute for color tints
-#[derive(Clone, Hash, PartialEq, Eq, Debug)]
-pub struct TintAttribute(pub &'static str, pub u32);
-
-impl VertexAttribute for TintAttribute {
-    fn name(&self) -> String { self.0.to_string() }
-    fn location(&self) -> u32 { self.1 }
-    fn format(&self) -> wgpu::VertexFormat { wgpu::VertexFormat::Float32x4 }
-
-    fn write_to(&self, idx: usize, instances: &DataTable, buffer: &mut Vec<u8>) {
-        if let Some(tint) = instances.get_property::<DirtyVec<Vec4>>(&self.name())
-            .and_then(|tints| tints.get(idx)) 
-        {
-            buffer.extend_from_slice(bytemuck::bytes_of(tint.as_ref()));
-        }
-    }
-}
-
-/// Instance attribute for uv offsets and scaling for use in a texture atlas
-#[derive(Clone, Hash, PartialEq, Eq, Debug)]
-pub struct UVBoundsAttribute;
-
-impl VertexAttribute for UVBoundsAttribute {
-    fn name(&self) -> String { UV_BOUNDS_ATTR.to_string() }
-    fn location(&self) -> u32 { UV_BOUNDS_LOC }
-    fn format(&self) -> wgpu::VertexFormat { wgpu::VertexFormat::Float32x4 }
-
-    fn write_to(&self, idx: usize, instances: &DataTable, buffer: &mut Vec<u8>) {
-        if let Some(uv_bounds) = instances.get_property::<DirtyVec<Vec4>>(&self.name())
-            .and_then(|bounds| bounds.get(idx))
-        {
-            buffer.extend_from_slice(bytemuck::bytes_of(uv_bounds.as_ref()));
-        }
+        self.attributes.get_updated(self.count, &mut self.instances)
     }
 }

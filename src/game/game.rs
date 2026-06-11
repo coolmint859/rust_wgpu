@@ -11,13 +11,13 @@ use super::{
 };
 
 use crate::graphics::{
-    camera::{Camera, Camera2D}, font::Font, geometry::{Geometry, PositionAttribute, UVAttribute}, init_state::StateInit, instance::{InstanceGroup, TintAttribute, TransformAttribute, UVBoundsAttribute}, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, primitive::{Primitive, RenderInfo}, renderer::{Renderer, TextOptions}, shape_factory::Shape2D, traits::{Driver, GameSystem}, transform::Transform
+    camera::{Camera, Camera2D}, font::Font, geometry::Geometry, init_state::StateInit, instance::InstanceGroup, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, primitive::{Primitive, RenderInfo}, renderer::{Renderer, TextOptions}, shape_factory::Shape2D, traits::{Driver, GameSystem}, transform::Transform, vertex::{TransformAttribute, Vec2Attribute, Vec3Attribute, Vec4Attribute, attr}
 };
 
 pub struct Game {
     flags: Primitive,
     flag_animator: CyclicAnimator,
-    particles: ParticleEmitter<PointSpawner2D>,
+    particles: ParticleEmitter<PlaneSpawner>,
     camera: Camera2D,
     font: Font,
 }
@@ -37,14 +37,14 @@ impl Game {
 
         let instances = InstanceGroup::new(transforms.len(), transforms.len())
             .with_attribute(TransformAttribute, transforms)
-            .with_attribute(TintAttribute("color", 10), colors)
-            .with_attribute(UVBoundsAttribute, uv_bounds);
+            .with_attribute(Vec4Attribute(attr::TINT_COLOR), colors)
+            .with_attribute(Vec4Attribute(attr::UV_BOUNDS), uv_bounds);
 
         let flags = Primitive::from_group(
             "flags", 
             Geometry::new(Shape2D::new().square())
-                .with_attribute(PositionAttribute)
-                .with_attribute(UVAttribute),
+                .with_attribute(Vec3Attribute(attr::POSITION))
+                .with_attribute(Vec2Attribute(attr::UV_COORDS)),
             MaterialPreset::TexturedSprite("./assets/flag.png".to_string()).with_label("animated-sprite"), 
             instances, 
             RenderInfo { 
@@ -57,39 +57,39 @@ impl Game {
             .with_animation(TextureAnimation::new(3, 1))
             .with_animation(FadeAnimation::new(FadeMode::Sinusoidal(0.0), 1.5));
 
-        let lifecycle = PointSpawner2D::new(
-            Variance { mean: 3.0, std_dev: 0.08 },
-            Variance { mean: 0.1, std_dev: 0.01 },
-            Vec3::new(0.0, 0.0, 1.0),
-        );
+        // let lifecycle = PointSpawner2D::new(
+        //     Variance { mean: 3.0, std_dev: 0.08 },
+        //     Variance { mean: 0.1, std_dev: 0.01 },
+        //     Vec3::new(0.0, 0.0, 1.0),
+        // );
 
-        // let lifecycle = PlaneSpawner {
-        //     emit_width: 5.0,
-        //     sky_y: 1.2,
-        //     floor_y: -1.2,
-        //     max_size: 0.01,
-        // };
+        let lifecycle = PlaneSpawner {
+            emit_width: 5.0,
+            sky_y: 1.2,
+            floor_y: -1.2,
+            max_size: 0.01,
+        };
 
         let particle_config = ParticleConfig {
-            total_particles: 5000,
+            total_particles: 1000,
             emit_cap: 80,
             is_one_shot: false
         };
 
-        // let particles = ParticleEmitter::colored(Vec4::new(0.0, 129.0/255.0, 185.0/255.0, 1.0), particle_config, lifecycle)
-        //     .with_behavior(WeatherForceBehavior {
-        //         gravity: -9.8,
-        //         wind_force: 1.0,
-        //         terminal_velocity: 3.0,
-        //         max_delay: 1.5
-        //     });
+        let particles = ParticleEmitter::colored(Vec4::new(0.0, 129.0/255.0, 185.0/255.0, 1.0), particle_config, lifecycle)
+            .with_behavior(WeatherForceBehavior {
+                gravity: -9.8,
+                wind_force: 1.0,
+                terminal_velocity: 3.0,
+                max_delay: 1.5
+            });
 
-        let particles = ParticleEmitter::textured("./assets/pride_flag.jpg", particle_config, lifecycle)
-            .with_behavior(RadialKinematicsBehavior::new(
-                Variance { mean: 0.3, std_dev: 0.05 },
-                Variance { mean: 1.0, std_dev: 0.1 }
-            ))
-            .with_behavior(FadeBehavior::new(FadeMode::Decrease));
+        // let particles = ParticleEmitter::textured("./assets/pride_flag.jpg", particle_config, lifecycle)
+        //     .with_behavior(RadialKinematicsBehavior::new(
+        //         Variance { mean: 0.3, std_dev: 0.05 },
+        //         Variance { mean: 1.0, std_dev: 0.1 }
+        //     ))
+        //     .with_behavior(FadeBehavior::new(FadeMode::Decrease));
 
         let font = Font::new("./assets/Monopack.ttf");
 
@@ -133,6 +133,6 @@ impl Driver for Game {
             }
         );
 
-        // self.particles.render(renderer);
+        self.particles.render(renderer);
     }
 }

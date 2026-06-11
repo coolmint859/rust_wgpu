@@ -3,9 +3,7 @@ use std::ops::Range;
 
 use glam::Vec4;
 
-use crate::{game::animation::{AnimationController}, graphics::{data_table::DataTable, primitive::{Primitive, RenderInfo}, geometry::{Geometry, PositionAttribute, UVAttribute}, instance::{InstanceGroup, InstanceTemplate, TintAttribute, TransformAttribute}, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, renderer::Renderer, shape_factory::Shape2D, traits::GameSystem, transform::Transform}};
-
-pub const PARTICLE_COLOR: &str = "particle_color";
+use crate::{game::animation::AnimationController, graphics::{data_table::DataTable, geometry::Geometry, instance::{InstanceGroup, InstanceTemplate}, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, primitive::{Primitive, RenderInfo}, renderer::Renderer, shape_factory::Shape2D, traits::GameSystem, transform::Transform, vertex::{TransformAttribute, Vec2Attribute, Vec3Attribute, Vec4Attribute, attr}}};
 
 /// Core trait for particle systems.
 /// 
@@ -90,7 +88,7 @@ impl<L: ParticleLifeCycle + 'static> ParticleEmitter<L> {
 
         let particle_template = particles.get_template()
             .with_defaults()
-            .with_attribute(PARTICLE_COLOR, Vec4::ONE); // override tint default to be all 1s
+            .with_attribute(attr::TINT_COLOR, Vec4::ONE); // override tint default to be all 1s
 
         Self {
             config,
@@ -106,7 +104,7 @@ impl<L: ParticleLifeCycle + 'static> ParticleEmitter<L> {
     /// Create a new particle emitter for a colored square
     pub fn colored(color: Vec4, config: ParticleConfig, lifecycle: L) -> Self {
         let geometry = Geometry::new(Shape2D::new().square())
-            .with_attribute(PositionAttribute);
+            .with_attribute(Vec3Attribute(attr::POSITION));
 
         let instance_group = InstanceGroup::new(0, config.total_particles)
             .with_label("particles")
@@ -129,13 +127,13 @@ impl<L: ParticleLifeCycle + 'static> ParticleEmitter<L> {
     /// Create a new particle emitter for a textured square
     pub fn textured(path: &str, config: ParticleConfig, lifecycle: L) -> Self {
         let geometry = Geometry::new(Shape2D::new().square())
-            .with_attribute(PositionAttribute)
-            .with_attribute(UVAttribute);
+            .with_attribute(Vec3Attribute(attr::POSITION))
+            .with_attribute(Vec2Attribute(attr::UV_COORDS));
 
         let instance_group = InstanceGroup::new(0, config.total_particles)
             .with_label("particles")
             .with_attribute(TransformAttribute, Vec::<Transform>::with_capacity(config.total_particles))
-            .with_attribute(TintAttribute(PARTICLE_COLOR, 10), Vec::<Vec4>::with_capacity(config.total_particles));
+            .with_attribute(Vec4Attribute(attr::TINT_COLOR), Vec::<Vec4>::with_capacity(config.total_particles));
 
         let particles = Primitive::from_group(
             "particles",

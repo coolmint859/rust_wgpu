@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use glam::{Vec2, Vec3};
 
-use crate::graphics::{data_table::{DataTable, DirtyVec}, geometry::{GeometryData, POSITION_ATTR, UV_ATTR}};
+use crate::graphics::{data_table::{DataTable, DirtyVec}, geometry::GeometryData, vertex::attr};
 
 /// Creates and stores 2D shapes
 pub struct Shape2D {
@@ -21,8 +21,8 @@ impl Shape2D {
         return match self.shapes.get(&label) {
             Some(geometry) => Arc::clone(geometry),
             None => {
-                let square = Arc::new(gen_square(&label));
-                self.shapes.insert(label.clone(), square.clone());
+                let square = Arc::new(gen_square(label.clone()));
+                self.shapes.insert(label, square.clone());
 
                 Arc::clone(&square)
             }
@@ -30,7 +30,7 @@ impl Shape2D {
     }
 }
 
-pub fn gen_square(label: &str) -> GeometryData {
+pub fn gen_square(label: String) -> GeometryData {
     let positions = vec![
         Vec3::new( 0.5,  0.5, 0.0 ),
         Vec3::new(-0.5,  0.5, 0.0 ),
@@ -46,17 +46,17 @@ pub fn gen_square(label: &str) -> GeometryData {
     ];
 
     let vertices = DataTable::new(4)
-        .with_label(label)
-        .with_property(POSITION_ATTR, |_| {
+        .with_property(attr::POSITION, |_| {
             DirtyVec::from_vec(positions)
         })
-        .with_property(UV_ATTR, |_| {
+        .with_property(attr::UV_COORDS, |_| {
             DirtyVec::from_vec(uvs)
         });
 
     let indices: Vec<u32> = vec![0, 1, 2, 2, 3, 0];
 
-    GeometryData { 
+    GeometryData {
+        label,
         vertices, 
         indices,
         vertex_count: 4

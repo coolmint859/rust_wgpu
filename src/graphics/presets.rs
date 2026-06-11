@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 use crate::graphics::{
-   bind_group::{BindGroupLayoutBuilder, LayoutBindType, LayoutEntry, LayoutVisibility}, material::{ColorComponent, FontComponent, Material, SamplerComponent, TextureComponent}, render_pipeline::RenderPipelineBuilder, shader::ShaderSpecBuilder, texture::SamplerBuilder, vertex::{POSITION_LOC, TINT_LOC, TRANSFORM_LOC, UV_BOUNDS_LOC, UV_LOC}, wpgu_context::ResourceID
+   bind_group::{BindGroupLayoutBuilder, LayoutBindType, LayoutEntry, LayoutVisibility}, material::{ColorComponent, FontComponent, Material, SamplerComponent, TextureComponent}, render_pipeline::RenderPipelineBuilder, shader::ShaderSpecBuilder, texture::SamplerBuilder, vertex::{TransformAttribute, Vec2Attribute, Vec3Attribute, Vec4Attribute, VertexAttributeLayout, attr}, wpgu_context::ResourceID
 };
 
 /// preset material configurations
@@ -79,52 +79,72 @@ impl ShaderSpecPreset {
                         visibility: LayoutVisibility::Fragment,
                         ty: LayoutBindType::Uniform,
                     });
+                    
+                let vertex_layout = VertexAttributeLayout::as_vertex()
+                    .with_attribute(Vec3Attribute(attr::POSITION))
+                    .get_builder(&format!("{}::vertex", &self.path()));
+
+                let instance_layout = VertexAttributeLayout::as_instance()
+                    .with_attribute(TransformAttribute)
+                    .get_builder(&format!("{}::instance", &self.path()));
 
                 ShaderSpecBuilder::new(&self.path())
-                    .with_vertex_attribute(POSITION_LOC, wgpu::VertexFormat::Float32x3)
-                    .with_instance_attribute(TRANSFORM_LOC, wgpu::VertexFormat::Float32x4)
-                    .with_instance_attribute(TRANSFORM_LOC+1, wgpu::VertexFormat::Float32x4)
-                    .with_instance_attribute(TRANSFORM_LOC+2, wgpu::VertexFormat::Float32x4)
-                    .with_instance_attribute(TRANSFORM_LOC+3, wgpu::VertexFormat::Float32x4)
+                    .with_vt_layout(vertex_layout)
+                    .with_vt_layout(instance_layout)
                     .with_bg_layout(global_bg_layout)
                     .with_bg_layout(colored_sprite_layout)
             },
             ShaderSpecPreset::TexturedSprite => {
+                let vertex_layout = VertexAttributeLayout::as_vertex()
+                    .with_attribute(Vec3Attribute(attr::POSITION))
+                    .with_attribute(Vec2Attribute(attr::UV_COORDS))
+                    .get_builder(&format!("{}::vertex", &self.path()));
+
+                let instance_layout = VertexAttributeLayout::as_instance()
+                    .with_attribute(TransformAttribute)
+                    .with_attribute(Vec4Attribute(attr::TINT_COLOR))
+                    .get_builder(&format!("{}::instance", &self.path()));
+
                 ShaderSpecBuilder::new(&self.path())
-                    .with_vertex_attribute(POSITION_LOC, wgpu::VertexFormat::Float32x3)
-                    .with_vertex_attribute(UV_LOC, wgpu::VertexFormat::Float32x2)
-                    .with_instance_attribute(TRANSFORM_LOC, wgpu::VertexFormat::Float32x4)
-                    .with_instance_attribute(TRANSFORM_LOC+1, wgpu::VertexFormat::Float32x4)
-                    .with_instance_attribute(TRANSFORM_LOC+2, wgpu::VertexFormat::Float32x4)
-                    .with_instance_attribute(TRANSFORM_LOC+3, wgpu::VertexFormat::Float32x4)
-                    .with_instance_attribute(TINT_LOC, wgpu::VertexFormat::Float32x4)
+                    .with_vt_layout(vertex_layout)
+                    .with_vt_layout(instance_layout)
                     .with_bg_layout(global_bg_layout)
                     .with_bg_layout(textured_sprite_layout)
             },
             ShaderSpecPreset::AnimatedSprite => {
+                let vertex_layout = VertexAttributeLayout::as_vertex()
+                    .with_attribute(Vec3Attribute(attr::POSITION))
+                    .with_attribute(Vec2Attribute(attr::UV_COORDS))
+                    .get_builder(&format!("{}::vertex", &self.path()));
+
+                let instance_layout = VertexAttributeLayout::as_instance()
+                    .with_attribute(TransformAttribute)
+                    .with_attribute(Vec4Attribute(attr::TINT_COLOR))
+                    .with_attribute(Vec4Attribute(attr::UV_BOUNDS))
+                    .get_builder(&format!("{}::instance", &self.path()));
+
                 ShaderSpecBuilder::new(&self.path())
-                    .with_vertex_attribute(POSITION_LOC, wgpu::VertexFormat::Float32x3)
-                    .with_vertex_attribute(UV_LOC, wgpu::VertexFormat::Float32x2)
-                    .with_instance_attribute(TRANSFORM_LOC, wgpu::VertexFormat::Float32x4)
-                    .with_instance_attribute(TRANSFORM_LOC+1, wgpu::VertexFormat::Float32x4)
-                    .with_instance_attribute(TRANSFORM_LOC+2, wgpu::VertexFormat::Float32x4)
-                    .with_instance_attribute(TRANSFORM_LOC+3, wgpu::VertexFormat::Float32x4)
-                    .with_instance_attribute(TINT_LOC, wgpu::VertexFormat::Float32x4)
-                    .with_instance_attribute(UV_BOUNDS_LOC, wgpu::VertexFormat::Float32x4)
+                    .with_vt_layout(vertex_layout)
+                    .with_vt_layout(instance_layout)
                     .with_bg_layout(global_bg_layout)
                     .with_bg_layout(textured_sprite_layout)
             },
             ShaderSpecPreset::Font => {
+                let vertex_layout = VertexAttributeLayout::as_vertex()
+                    .with_attribute(Vec3Attribute(attr::POSITION))
+                    .with_attribute(Vec2Attribute(attr::UV_COORDS))
+                    .get_builder(&format!("{}::vertex", &self.path()));
+
+                let instance_layout = VertexAttributeLayout::as_instance()
+                    .with_attribute(TransformAttribute)
+                    .with_attribute(Vec4Attribute(attr::TEXT_COLOR))
+                    .with_attribute(Vec4Attribute(attr::OUTLINE_COLOR))
+                    .with_attribute(Vec4Attribute(attr::UV_BOUNDS))
+                    .get_builder(&format!("{}::instance", &self.path()));
+
                 ShaderSpecBuilder::new(&self.path())
-                    .with_vertex_attribute(POSITION_LOC, wgpu::VertexFormat::Float32x3)
-                    .with_vertex_attribute(UV_LOC, wgpu::VertexFormat::Float32x2)
-                    .with_instance_attribute(TRANSFORM_LOC, wgpu::VertexFormat::Float32x4)
-                    .with_instance_attribute(TRANSFORM_LOC+1, wgpu::VertexFormat::Float32x4)
-                    .with_instance_attribute(TRANSFORM_LOC+2, wgpu::VertexFormat::Float32x4)
-                    .with_instance_attribute(TRANSFORM_LOC+3, wgpu::VertexFormat::Float32x4)
-                    .with_instance_attribute(TINT_LOC, wgpu::VertexFormat::Float32x4)
-                    .with_instance_attribute(11, wgpu::VertexFormat::Float32x4)
-                    .with_instance_attribute(UV_BOUNDS_LOC, wgpu::VertexFormat::Float32x4)
+                    .with_vt_layout(vertex_layout)
+                    .with_vt_layout(instance_layout)
                     .with_bg_layout(global_bg_layout)
                     .with_bg_layout(textured_sprite_layout)
             }

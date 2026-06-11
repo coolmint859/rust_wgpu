@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use crate::graphics::{geometry::Geometry, instance::{Instance, InstanceGroup, InstanceMut, InstanceTemplate, TintAttribute, TransformAttribute}, material::{Material, UniformBuilder}, render_pipeline::RenderPipelineBuilder, transform::Transform, wpgu_context::{GeometryID, ResourceBinding, ResourceID, ResourceScope, ResourceType, ResourceUpdate}};
+use crate::graphics::{geometry::Geometry, instance::{Instance, InstanceGroup, InstanceMut, InstanceTemplate}, material::{Material, UniformBuilder}, render_pipeline::RenderPipelineBuilder, transform::Transform, vertex::TransformAttribute, wpgu_context::{GeometryID, ResourceBinding, ResourceID, ResourceScope, ResourceType, ResourceUpdate}};
 
 static ENTITY_COUNTER: AtomicU32 = AtomicU32::new(0);
 
@@ -25,9 +25,7 @@ impl Primitive {
     pub fn new(label: &str, geometry: Geometry, material: Material, transform: Transform, render_info: RenderInfo) -> Self {
         let instances = InstanceGroup::new(1, 1)
             .with_label(label)
-            .with_attribute(TransformAttribute, vec![transform])
-            .with_attribute(TintAttribute("color", 10), vec![glam::Vec4::ONE]);
-
+            .with_attribute(TransformAttribute, vec![transform]);
         Primitive::from_group(label, geometry, material, instances, render_info)
     }
 

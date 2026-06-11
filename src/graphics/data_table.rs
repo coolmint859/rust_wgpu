@@ -355,7 +355,6 @@ impl<'a> DataTableProxy<'a> {
 
 /// A homogenous collection of generic data stored in DynVectors keyed by a string.
 pub struct DataTable {
-    pub label: String,
     pub properties: HashMap<String, Box<dyn DynVec>>,
     pub capacity: usize,
 }
@@ -363,7 +362,6 @@ pub struct DataTable {
 impl DataTable {
     pub fn new(capacity: usize) -> Self {
         Self {
-            label: "table".to_string(),
             properties: HashMap::new(),
             capacity,
         }
@@ -374,12 +372,6 @@ impl DataTable {
         self.properties.keys()
             .map(|key| key)
             .collect()
-    }
-
-    /// Add a label to this data table.
-    pub fn with_label(mut self, label: &str) -> Self {
-        self.label = label.to_string();
-        self
     }
 
     /// Add a property to this data table.
