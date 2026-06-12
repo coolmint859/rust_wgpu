@@ -1,10 +1,11 @@
 #![allow(dead_code)]
 use std::{
-    collections::HashMap, 
-    hash::Hash, 
-    sync::{Arc, mpsc}, 
-    time::Instant
+    collections::HashMap, fmt::Debug, hash::Hash, sync::{Arc, Mutex, mpsc}, time::{Duration, Instant}
 };
+
+use tokio::task::JoinHandle;
+
+use crate::graphics::wpgu_context::HoldPolicy;
 
 /// Specifies the type of work that a ResourceBuilder does.
 pub enum BuilderType {
@@ -22,33 +23,72 @@ pub trait ResourceBuilder: Send + Sync + Clone + 'static {
     /// Get the type of work (io-bound vs cpu-bound) that this builder does. Default is io-bound.
     fn builder_type(&self) -> BuilderType { BuilderType::NonBlocking }
 
+    /// Get the amount of time in seconds this resource should be held after it was last accessed before being deallocated.
+    /// 
+    /// None (default) signifies that this resource lives indefinitely. 
+    fn hold_time(&self) -> HoldPolicy { HoldPolicy::Indefinite }
+
     /// Contruct the Output instance with the settings provided
     fn build(&self, context: Arc<Self::Context>) -> Result<Self::Output, String>;
+}
+
+/// Stores metadata about resources that finished completion
+pub struct Ready<R> {
+    /// The stored resource
+    pub rsc: R,
+    /// The time in seconds before this resource should be deallocated.
+    pub hold_time: Option<u64>,
+    /// The time stamp for this resource was last accessed.
+    pub accessed: Mutex<Instant>,
+}
+
+/// Stores metadata about resources that failed completion
+pub struct Failed {
+    /// An error message indicating why the Resource failed
+    pub err_msg: String,
+    /// The time stamp for when the resource failed.
+    pub failed_at: Instant
+}
+
+/// Stores metadata about resources that are pending completion
+pub struct Pending {
+    /// A handle to the tokio thread responsible for creating the resource
+    pub thread_handle: JoinHandle<()>,
+    /// The time stamp for when the resource was requested.
+    pub requested_at: Instant,
 }
 
 /// Represents the state of a resource requested by the user of a handler instance.
 pub enum ResourceStatus<R> {
     /// Resource has been requested but is not yet ready
-    Pending(Instant),
+    Pending(Pending),
 
     /// Resource is ready for retrieval
-    Ready(R),
+    Ready(Ready<R>),
 
     /// Resource failed to complete
-    Failed(String),
+    Failed(Failed),
 }
 
 impl<R> ResourceStatus<R> {
-    /// Retrieve the time the resource was added if still pending creation
-    pub fn creation_time(&self) -> Option<&Instant>{
+    /// Retrieve the time the resource was requested if still pending creation
+    pub fn requested_at(&self) -> Option<&Instant>{
         match self {
-            ResourceStatus::Pending(time) => Some(time),
+            ResourceStatus::Pending(pending) => Some(&pending.requested_at),
             _ => None
         }
     }
 
     /// Retreive a reference to the stored resource if available.
-    pub fn value(&self) -> Option<&R> {
+    pub fn value(&self) -> Option<&Ready<R>> {
+        match self {
+            ResourceStatus::Ready(resource) => Some(resource),
+            _ => None
+        }
+    }
+
+    /// Retreive a mutable reference to the stored resource if available.
+    pub fn value_mut(&mut self) -> Option<&mut Ready<R>> {
         match self {
             ResourceStatus::Ready(resource) => Some(resource),
             _ => None
@@ -58,9 +98,24 @@ impl<R> ResourceStatus<R> {
     /// retreive the error message if the stored resource failed to complete.
     pub fn error_msg(&self) -> Option<&str> {
         match self {
-            ResourceStatus::Failed(err) => Some(err.as_str()),
+            ResourceStatus::Failed(failed) => Some(&failed.err_msg),
             _ => None
         }
+    }
+
+    /// Check if this resource is ready (has completed loading/creation)
+    pub fn is_ready(&self) -> bool {
+        return self.value().is_some()
+    }
+
+    /// Check if this resource is pending (not yet loaded/created)
+    pub fn is_pending(&self) -> bool {
+        return self.requested_at().is_some()
+    }
+
+    /// Check if this resource is failed (didn't load/wasn't created)
+    pub fn is_failed(&self) -> bool {
+        return self.error_msg().is_some()
     }
 }
 
@@ -75,13 +130,14 @@ impl<R> ResourceStatus<R> {
 pub struct ResourceHandler<K, R> {
     resource_map: HashMap<K, ResourceStatus<R>>,
 
-    tx: mpsc::Sender<(K, Result<R, String>)>,
-    rx: mpsc::Receiver<(K, Result<R, String>)>,
+    tx: mpsc::Sender<(K, Result<Ready<R>, String>)>,
+    rx: mpsc::Receiver<(K, Result<Ready<R>, String>)>,
 
-    timeout: u64, // time before a worker thread is considered 'dead' by the main thread
+    thread_timeout: Duration, // time before a builder thread is considered 'dead' by the main thread
+    failed_timeout: Duration, // time before a failed resource is removed from the map
 }
 
-impl<K, R> ResourceHandler<K, R> 
+impl<K: Debug, R> ResourceHandler<K, R> 
 where
     K: Hash + Eq + PartialEq + Clone + Send + 'static,
     R: Send + 'static,
@@ -92,48 +148,82 @@ where
         Self {
             resource_map: HashMap::new(),
             tx, rx,
-            timeout: 5,
+            thread_timeout: Duration::from_secs(5),
+            failed_timeout: Duration::from_secs(3)
         }
     }
 
-    /// Set the resource timeout for worker threads, in seconds. The default is 5.
+    /// Set the resource timeout for builder threads, in seconds. The default is 5 seconds.
     /// 
     /// This is the amount of time before a thread is considered 'dead' and is told to stop executing.
-    pub fn set_timeout(&mut self,  timeout: u64) {
-        self.timeout = timeout;
+    pub fn set_thread_tmt(&mut self,  timeout: u64) {
+        self.thread_timeout = Duration::from_secs(timeout);
+    }
+
+    /// Set the timeout for failed resources, in seconds. The default is 3 seconds.
+    /// 
+    /// This is the amount of time before a failed resource is removed from the internal map. 
+    pub fn set_failed_tmt(&mut self, timeout: u64) {
+        self.failed_timeout = Duration::from_secs(timeout);
     }
 
     /// Retrieve a resource if is is ready. If the resource has not yet been requested, 
     /// a worker thread tracks its creation via a builder object, and None is returned.
     /// 
-    /// key: K, a handle to retrieve the resource when available
-    /// 
-    /// builder: B, Any object that implements the ResourceBuilder trait
-    /// 
-    /// context: C, an instance of the context type specfied by the builder B
+    /// * 'key' - A handle K to query the handler for the resource
+    /// * 'builder' - A ResourceBuilder implementation that outputs a resource R
+    /// * 'context' - An instance of the context type specfied by the builder B
     pub fn get_or_request<B, C>(&mut self, key: &K, builder: &B, context: Arc<C>) -> Option<&R> 
     where 
         B: ResourceBuilder<Output = R, Context = C>,
         C: Send + Sync + 'static
     {
-        // resource does not exist in map
-        if !self.resource_map.contains_key(key) {
+        let needs_request = match self.resource_map.get(key) {
+            None => true,                               // resource doesn't exist in map
+            Some(ResourceStatus::Failed(_)) => true,    // resource exists but previously failed
+            Some(_) => false                            // resource exists but is either pending or ready
+        };
+
+        if needs_request {
+            self.remove(key);
             self.request_new(key, builder, context);
             return None;
         }
 
-        // resource is in map, but may not be ready
-        self.get(&key)
+        self.get(key)
     }
 
-    /// Request a new worker thread to track resource creation via a builder object.
+    /// Request a builder thread to create a resource via a ResourceBuilder if previously failed.
+    /// 
+    /// If the resource does not exist, this method still spawns a builder thread.
+    /// If the resource exists and is pending or ready, no thread is spawned.
+    /// 
+    /// * 'key' - A handle K to query the handler for the resource
+    /// * 'builder' - A ResourceBuilder implementation that outputs a resource R
+    /// * 'context' - An instance of the context type specfied by the builder B
+    pub fn request_retry<B, C>(&mut self, key: &K, builder: &B, context: Arc<C>)
+    where 
+        B: ResourceBuilder<Output = R, Context = C>,
+        C: Send + Sync + 'static
+    {
+        let needs_retry = match self.resource_map.get(key) {
+            None => true,
+            Some(ResourceStatus::Failed(_)) => true,
+            Some(_) => false
+        };
+
+        if needs_retry {
+            self.remove(key);
+            self.request_new(key, builder, context);
+        }
+    }
+
+    /// Request a new builder thread to create a resource via a ResourceBuilder.
     /// Does nothing if a resource with the matching key was already requested.
     /// 
-    /// key: K, a handle to retrieve the resource when available
-    /// 
-    /// builder: B, Any object that implements the ResourceBuilder trait with the matching output 
-    /// 
-    /// context: C, an instance of the context type specfied by the builder B
+    /// * 'key' - A handle K to query the handler for the resource
+    /// * 'builder' - A ResourceBuilder implementation that outputs a resource R
+    /// * 'context' - An instance of the context type specfied by the builder B
     pub fn request_new<B, C>(&mut self, key: &K, builder: &B, context: Arc<C>) 
     where 
         B: ResourceBuilder<Output = R, Context = C>,
@@ -146,54 +236,74 @@ where
 
         let context_cpy = context.clone();
         let builder_cpy = builder.clone();
-
-        let status = ResourceStatus::Pending(Instant::now());
-        self.resource_map.insert(key_cpy.clone(), status);
-
         let tx = self.tx.clone();
 
-        match builder.builder_type() {
+        let tokio_handle = match builder.builder_type() {
             BuilderType::NonBlocking => {
-                tokio::task::spawn(async move {
-                    let result = builder_cpy.build(context_cpy); 
+                tokio::task::spawn( async move {
+                    let result = ResourceHandler::<K, R>::load_rsc(builder_cpy, context_cpy);
                     let _ = tx.send((key_cpy, result));
-                });
-            }
+                })
+            },
             BuilderType::Blocking => {
                 tokio::task::spawn_blocking(move || {
-                    let result = builder_cpy.build(context_cpy); 
+                    let result = ResourceHandler::<K, R>::load_rsc(builder_cpy, context_cpy);
                     let _ = tx.send((key_cpy, result));
-                });
+                })
             }
-        }
-        
+        };
+
+        let status = ResourceStatus::Pending(Pending {
+            thread_handle: tokio_handle,
+            requested_at: Instant::now()
+        });
+        self.resource_map.insert(key.clone(), status);
+    }
+
+    /// Load a new resource by calling the builder, and wrapping the Ok result in a ReadyResource instance
+    fn load_rsc<B, C>(builder: B, context: Arc<C>) -> Result<Ready<R>, String>
+    where 
+        B: ResourceBuilder<Output = R, Context = C>,
+        C: Send + Sync + 'static
+    {
+        builder.build(context)
+            .map(|rsc| Ready {
+                rsc,
+                hold_time: builder.hold_time().as_seconds(),
+                accessed: Mutex::new(Instant::now())
+            })
     }
     
-    /// Request a new resource and wait for it's completion, blocking the calling thread until complete.
+    /// Request a new resource and wait for it's completion.
     /// 
-    /// Returns a result object describing whether the the resource was successfuly created.
-    pub fn request_wait<B, C>(&mut self, key: &K, builder: &B, context: Arc<C>) -> Result<(), String>
+    /// Returns a result object containing the completed resource, or an error message if failed.
+    /// 
+    /// * 'key' - A handle K to query the handler for the resource
+    /// * 'builder' - A ResourceBuilder implementation that outputs a resource R
+    /// * 'context' - An instance of the context type specfied by the builder B
+    pub fn request_wait<B, C>(&mut self, key: &K, builder: &B, context: Arc<C>) -> Result<Option<&R>, String>
     where 
         B: ResourceBuilder<Output = R, Context = C>,
         C: Send + Sync + 'static
     {
         if self.resource_map.contains_key(key) {
-            return Ok(());
+            return Ok(self.get(key));
         }
         
-        // build is a blocking call
-        match builder.build(context.clone()) {
-            Ok(resource) => {
-                self.store(key, resource);
-                Ok(())
-            },
-            Err(msg) => Err(msg)
-        }
+        builder.build(context).map(|rsc| {
+            self.store(key, rsc, builder.hold_time().as_seconds());
+            self.get(key)
+        })
     }
 
     /// Store a preloaded resource into the internal map
-    pub fn store(&mut self, key: &K, resource: R) {
-        let status = ResourceStatus::Ready(resource);
+    pub fn store(&mut self, key: &K, resource: R, hold_time: Option<u64>) {
+        let status = ResourceStatus::Ready(Ready { 
+            rsc: resource, 
+            hold_time, 
+            accessed: Mutex::new(Instant::now())
+        });
+
         self.resource_map.insert(key.clone(), status);
     }
 
@@ -209,47 +319,72 @@ where
         // check for completed worker threads
         while let Ok((key, result)) = self.rx.try_recv() {
             let status = match result {
-                Ok(res) => ResourceStatus::Ready(res),
-                Err(e) => ResourceStatus::Failed(e),
+                Ok(rsc) => ResourceStatus::Ready(rsc),
+                Err(e) => ResourceStatus::Failed(Failed { 
+                    err_msg: e, failed_at: Instant::now() 
+                }),
             };
             self.resource_map.insert(key, status);
         }
 
-        let now = Instant::now();
-        let max_wait = std::time::Duration::from_secs(self.timeout);
+        self.evaluate_rsc_statuses();
+    }
 
-        // check for stalled/lost worker threads
-        for status in self.resource_map.values_mut() {
-            if let ResourceStatus::Pending(start_time) = status {
-                if now.duration_since(*start_time) > max_wait {
-                    *status = ResourceStatus::Failed("Worker thread lost or stalled execution.".to_string());
+    /// Evaluate the statuses of known resources, determining whether to mark as failed or remove from the map
+    fn evaluate_rsc_statuses(&mut self) {
+        let now = Instant::now();
+        self.resource_map.retain(|key, status| {
+            match status {
+                ResourceStatus::Ready(ready_rsc) => {
+                    if let Some(hold_time) = ready_rsc.hold_time {
+                        let hold_duration = Duration::from_secs(hold_time);
+
+                        if let Ok(accessed) = ready_rsc.accessed.lock() {
+                            if now.saturating_duration_since(*accessed) > hold_duration {
+                                println!("[ResourceHandler] Removed resource with key {:?} from handler due to hold timeout.", key);
+                                
+                                return false; // resource is considered 'dead', remove it from the handler
+                            }
+                        }
+                    }
+                },
+                ResourceStatus::Pending(pending) => {
+                    if now.saturating_duration_since(pending.requested_at) > self.thread_timeout {
+                        println!("[ResourceHandler] Aborted builder thread for resource with key {:?} due to thread timeout.", key);
+                                
+                        pending.thread_handle.abort(); // cancel the thread
+
+                        *status = ResourceStatus::Failed(Failed { 
+                            err_msg: "Worker thread lost or stalled execution.".to_string(), 
+                            failed_at: now 
+                        });
+                    }
+                },
+                ResourceStatus::Failed(failed_state) => {
+                    if now.saturating_duration_since(failed_state.failed_at) > self.failed_timeout {
+                        println!("[ResourceHandler] Removed resource with key {:?} from handler due to fail status timeout.", key);
+                        
+                        return false;
+                    }
                 }
             }
-        }
+            return true; // resource is still active
+        });
     }
 
     /// Check if a requested resource has finished completion and is stored in the map.
     pub fn is_ready(&self, key: &K) -> bool {
-        return matches!(
-            self.resource_map.get(key),
-            Some(ResourceStatus::Ready(_))
-        )
+        self.resource_map.get(key).is_some_and(|rsc| rsc.is_ready())
     }
 
     /// Check if requested resource is still pending completion
     pub fn is_pending(&self, key: &K) -> bool {
-        return matches!(
-            self.resource_map.get(key),
-            Some(ResourceStatus::Pending(_))
-        )
+        self.resource_map.get(key).is_some_and(|rsc| rsc.is_pending())
     }
 
     /// Check if a requested resource failed completion.
     pub fn is_failed(&self, key: &K) -> bool {
-        return matches!(
-            self.resource_map.get(key),
-            Some(ResourceStatus::Failed(_))
-        )
+        self.resource_map.get(key).is_some_and(|rsc| rsc.is_failed())
     }
 
     /// Get the error message of a failed resource, if applicable.
@@ -262,9 +397,48 @@ where
         self.resource_map.get(key)
     }
 
-    /// Get a completed resource. Returns None if the resource does not exist/is unavailable.
+    /// Get a reference to a completed resource. Returns None if the resource does not exist/is unavailable.
     pub fn get(&self, key: &K) -> Option<&R> {
-        (self.resource_map.get(key)?).value()
+        match self.resource_map.get(key) {
+            Some(ResourceStatus::Ready(ready_rsc)) => {
+                if let Ok(mut accessed) = ready_rsc.accessed.lock() {
+                    *accessed = Instant::now()
+                }
+
+                Some(&ready_rsc.rsc)
+            },
+            _ => None
+        }
+    }
+
+    /// Get a mutable reference to a completed resource. Returns None if the resource does not exist/is unavailable.
+    /// 
+    /// Note: This locks the handler from retreival of other resources.
+    pub fn get_mut(&mut self, key: &K) -> Option<&mut R> {
+        match self.resource_map.get_mut(key) {
+            Some(ResourceStatus::Ready(ready_rsc)) => {
+                if let Ok(mut accessed) = ready_rsc.accessed.lock() {
+                    *accessed = Instant::now()
+                }
+
+                Some(&mut ready_rsc.rsc)
+            },
+            _ => None
+        }
+    }
+
+    /// Mark a resource as accessed. 
+    /// 
+    /// This is useful in cases where a resource may have dependencies, but you don't need to access the dependencies directly.
+    pub fn mark_accessed(&self, key: &K) {
+        match self.resource_map.get(key) {
+            Some(ResourceStatus::Ready(ready_rsc)) => {
+                if let Ok(mut accessed) = ready_rsc.accessed.lock() {
+                    *accessed = Instant::now()
+                }
+            },
+            _ => {}
+        }
     }
 
     /// Check if the internal map contains a resource with the specified key (in any state)

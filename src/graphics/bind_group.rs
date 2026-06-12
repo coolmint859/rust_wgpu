@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 use std::{sync::Arc};
 
+use crate::graphics::wpgu_context::{HoldPolicy, ResourceID};
+
 use super::handler::ResourceBuilder;
 
 /// Represents a single bind group layout entry
@@ -137,7 +139,8 @@ impl ResourceBuilder for BindGroupLayoutBuilder {
 #[derive(Clone)]
 pub struct BindGroupContext {
     pub device: Arc<wgpu::Device>,
-    pub layout: Arc<wgpu::BindGroupLayout>
+    pub layout: Arc<wgpu::BindGroupLayout>,
+    pub dependencies: Vec<ResourceID>
 }
 
 /// A specific resource stored in a bind group entry
@@ -146,6 +149,12 @@ pub enum BindGroupResource {
     Buffer(Arc<wgpu::Buffer>),
     Texture(Arc<wgpu::TextureView>),
     Sampler(Arc<wgpu::Sampler>)
+}
+
+/// Wrapper struct for wgpu BindGroups and associated dependencies
+pub struct BindGroupAsset {
+    pub bg: wgpu::BindGroup,
+    pub dependencies: Vec<ResourceID>
 }
 
 /// Represents a single uniform on the gpu
@@ -189,10 +198,12 @@ impl BindGroupBuilder {
 }
 
 impl ResourceBuilder for BindGroupBuilder {
-    type Output = wgpu::BindGroup;
+    type Output = BindGroupAsset;
     type Context = BindGroupContext;
 
-    fn build(&self, context: Arc<BindGroupContext>) -> Result<wgpu::BindGroup, String> {
+    fn hold_time(&self) -> HoldPolicy { HoldPolicy::Volatile }
+
+    fn build(&self, context: Arc<BindGroupContext>) -> Result<Self::Output, String> {
         let group_entries: Vec<wgpu::BindGroupEntry> = self.entries.iter()
             .map(|entry| {
                 let bind_resource = match &entry.resource {
@@ -228,6 +239,9 @@ impl ResourceBuilder for BindGroupBuilder {
 
         println!("[Bind Group] Created new bind group with label '{}'", self.label);
 
-        Ok(bind_group)
+        Ok(BindGroupAsset {
+            bg: bind_group,
+            dependencies: context.dependencies.clone()
+        })
     }
 }

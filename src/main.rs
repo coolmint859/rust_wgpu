@@ -22,6 +22,7 @@ pub struct App<D> {
     elapsed_time: f32,
     aspect_ratio: f32,
     attributes: WindowAttributes,
+    is_resizing: bool
 }
 
 impl<D: Driver> App<D> {
@@ -34,7 +35,35 @@ impl<D: Driver> App<D> {
             driver,
             aspect_ratio: 1.0,
             attributes,
+            is_resizing: false
         }
+    }
+}
+
+impl<D: Driver> App<D> {
+    pub fn run_frame(&mut self) {
+        let mut renderer = match &mut self.renderer {
+            Some(renderer) => renderer,
+            None => return
+        };
+
+        renderer.begin_frame(self.elapsed_time);
+
+        let curr_time = time::Instant::now();
+        let dt = (curr_time - self.prev_time).as_secs_f32();
+        self.prev_time = curr_time;
+
+        self.elapsed_time += dt;
+
+        // println!("ET: {}", self.elapsed_time);
+        
+        self.default_cam.set_aspect_ratio(self.aspect_ratio);
+
+        self.driver.process_input(dt, self.elapsed_time);
+        self.driver.update(dt, self.elapsed_time);
+        self.driver.render(&mut renderer, self.aspect_ratio);
+
+        renderer.end_frame();
     }
 }
 
@@ -54,27 +83,11 @@ impl<D: Driver> ApplicationHandler for App<D> {
     }
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-        let renderer = match &mut self.renderer {
-            Some(renderer) => renderer,
-            None => return
-        };
-
-        let curr_time = time::Instant::now();
-        let dt = (curr_time - self.prev_time).as_secs_f32();
-        self.prev_time = curr_time;
-
-        self.elapsed_time += dt;
-
-        // println!("ET: {}", self.elapsed_time);
-
-        self.driver.process_input(dt, self.elapsed_time);
-        self.driver.update(dt, self.elapsed_time);
-        
-        renderer.begin_frame(self.elapsed_time);
+        self.run_frame();
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _window_id: WindowId, event: WindowEvent) {
-        let mut renderer = match &mut self.renderer {
+        let renderer = match &mut self.renderer {
             Some(renderer) => renderer,
             None => return
         };
@@ -84,11 +97,10 @@ impl<D: Driver> ApplicationHandler for App<D> {
             WindowEvent::Resized(size) => {
                 renderer.resize(size.width, size.height);
                 self.aspect_ratio = size.width as f32 / size.height as f32;
+                self.is_resizing = true;
             },
             WindowEvent::RedrawRequested => {
-                self.default_cam.set_aspect_ratio(self.aspect_ratio);
-                self.driver.render(&mut renderer, self.aspect_ratio);
-                renderer.end_frame();
+                self.run_frame();
             }
             WindowEvent::KeyboardInput {
                 event: KeyEvent {

@@ -3,6 +3,8 @@ use std::sync::Arc;
 
 use bytemuck::NoUninit;
 use image::GenericImageView;
+use crate::graphics::wpgu_context::HoldPolicy;
+
 use super::handler::ResourceBuilder;
 
 /// Simple struct representing a pixel in a texture
@@ -40,6 +42,8 @@ impl SamplerBuilder {
 impl ResourceBuilder for SamplerBuilder {
     type Output = Arc<wgpu::Sampler>;
     type Context = wgpu::Device;
+
+    fn hold_time(&self) -> HoldPolicy { HoldPolicy::Persistent }
 
     fn build(&self, device: Arc<wgpu::Device>) -> Result<Arc<wgpu::Sampler>, String> {
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -149,6 +153,8 @@ impl TextureBuilder {
 impl ResourceBuilder for TextureBuilder {
     type Output = Arc<wgpu::TextureView>;
     type Context = TextureContext;
+
+    fn hold_time(&self) -> HoldPolicy { HoldPolicy::Transient }
 
     fn build(&self, context: Arc<TextureContext>) -> Result<Self::Output, String> {
         let (width, height, data) = self.get_img_raw();

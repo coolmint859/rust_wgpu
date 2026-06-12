@@ -290,7 +290,6 @@ impl Renderer {
 
     /// begin a new frame to prepare for rendering. 
     pub fn begin_frame(&mut self, elapsed_time: f32) {
-        self.context.prepare_next_frame();
         self.elapsed_time = elapsed_time;
 
         // loop through every font primitive and clear the character buffers
@@ -325,5 +324,8 @@ impl Renderer {
         };
 
         let _ = self.context.render(render_ctx);
+
+        // prepare for the next frame
+        self.context.prepare_next_frame();
     }
 }

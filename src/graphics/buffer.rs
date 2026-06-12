@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 use std::sync::Arc;
-use crate::graphics::handler::ResourceBuilder;
+use crate::graphics::{handler::ResourceBuilder, wpgu_context::HoldPolicy};
 
 #[derive(Clone, Debug)]
 pub enum BufferType {
@@ -109,6 +109,8 @@ impl BufferBuilder {
 impl ResourceBuilder for BufferBuilder {
     type Output = Arc<wgpu::Buffer>;
     type Context = BufferContext;
+
+    fn hold_time(&self) -> HoldPolicy { HoldPolicy::Dynamic }
 
     fn build(&self, context: Arc<BufferContext>) -> Result<Arc<wgpu::Buffer>, String> {
         let buffer_size = self.size.max(self.data.len());

@@ -91,7 +91,7 @@ impl Game {
         //     ))
         //     .with_behavior(FadeBehavior::new(FadeMode::Decrease));
 
-        let font = Font::new("./assets/Monopack.ttf");
+        let font = Font::new("./assets/arial.ttf");
 
         Self {particles, flags, flag_animator, camera, font }
     }
@@ -128,8 +128,8 @@ impl Driver for Game {
                 pos: Vec3::new(-1.25, 0.0, 0.0),
                 width: 2.5,
                 text_color: Vec4::ONE,
-                // outline_color: None
-                outline_color: Some(Vec4::new(0.0, 0.0, 0.0, 1.0))
+                outline_color: None
+                // outline_color: Some(Vec4::new(0.0, 0.0, 0.0, 1.0))
             }
         );
 

@@ -4,7 +4,7 @@ use winit::window::Window;
 use std::sync::Arc;
 
 use crate::graphics::{
-    bind_group::{BindGroupBuilder, BindGroupContext, BindGroupLayoutBuilder, BindGroupResource}, buffer::{BufferBuilder, BufferContext}, core::WgpuCore, primitive::RenderInfo, font::{FontAsset, FontBuilder}, geometry::GeometrySignature, handler::{ResourceHandler, ResourceStatus}, init_state::{InitMode, StateInit}, presets::{ShaderSpecPreset, TextureSampler}, render_pipeline::{RenderPipelineBuilder, RenderPipelineContext}, renderer::{DrawCommand, RenderContext}, shader::ShaderSpec, texture::{SamplerBuilder, TextureBuilder, TextureContext}, vertex::VertexLayoutBuilder,
+    bind_group::{BindGroupAsset, BindGroupBuilder, BindGroupContext, BindGroupLayoutBuilder, BindGroupResource}, buffer::{BufferBuilder, BufferContext}, core::WgpuCore, font::{FontAsset, FontBuilder}, geometry::GeometrySignature, handler::ResourceHandler, init_state::{InitMode, StateInit}, presets::{ShaderSpecPreset, TextureSampler}, primitive::RenderInfo, render_pipeline::{RenderPipelineBuilder, RenderPipelineContext}, renderer::{DrawCommand, RenderContext}, shader::ShaderSpec, texture::{SamplerBuilder, TextureBuilder, TextureContext}, vertex::VertexLayoutBuilder
 };
 
 /// Group binding number for global uniforms
@@ -38,6 +38,35 @@ pub enum ResourceType {
     BindGroup,
     /// a font asset (atlas + metrics)
     Font,
+}
+
+/// The hold policy for gpu resources. 
+/// These are used to specify how long a resource should stay in memory before being deallocated due to not being used.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HoldPolicy {
+    /// Resource is kept for a short amount of time (e.g. 5 seconds).
+    Volatile,
+    /// Resource is kept for a medium short amount of time (e.g. 10 seconds)
+    Dynamic,
+    /// Resource is kept for medium long amount of time (e.g. 15 seconds)
+    Transient,
+    /// Resource is kept for a long amount of time (e.g. 30 seconds)
+    Persistent,
+    /// Resource lives the entire runtime duration
+    Indefinite,
+}
+
+impl HoldPolicy {
+    /// get this hold policy in seconds
+    pub fn as_seconds(self) -> Option<u64> {
+        match self {
+            HoldPolicy::Indefinite => None,
+            HoldPolicy::Volatile => Some(3),
+            HoldPolicy::Dynamic => Some(5),
+            HoldPolicy::Transient => Some(15),
+            HoldPolicy::Persistent => Some(30),
+        }
+    }
 }
 
 /// Specifies the scope for which a resource should be namespaced (allows different levels of resource sharing)
@@ -94,17 +123,19 @@ pub struct ResourceUpdate {
 pub struct WgpuContext {
     core: WgpuCore,
 
+    // resource containers/metadata
     bg_layout_handler: ResourceHandler<BindGroupLayoutBuilder, Arc<wgpu::BindGroupLayout>>,
     vertex_layout_handler: ResourceHandler<VertexLayoutBuilder, Arc<wgpu::VertexBufferLayout<'static>>>,
     pipeline_handler: ResourceHandler<RenderPipelineBuilder, wgpu::RenderPipeline>,
     shader_spec_handler: ResourceHandler<String, ShaderSpec>,
     shader_mod_handler: ResourceHandler<String, Arc<wgpu::ShaderModule>>,
 
+    /// resources
     buffer_handler: ResourceHandler<ResourceID, Arc<wgpu::Buffer>>,
     font_handler: ResourceHandler<ResourceID, Arc<FontAsset>>,
     texture_handler: ResourceHandler<ResourceID, Arc<TextureView>>,
     sampler_handler: ResourceHandler<ResourceID, Arc<wgpu::Sampler>>,
-    bindgroup_handler: ResourceHandler<ResourceID, wgpu::BindGroup>,
+    bindgroup_handler: ResourceHandler<ResourceID, BindGroupAsset>,
 }
 
 impl WgpuContext {
@@ -286,6 +317,7 @@ impl WgpuContext {
 
         // println!("Creating new bind group with layout: {}", layout_id.label);
 
+        let mut dependencies: Vec<ResourceID> = Vec::new();
         let mut resource_pairs = Vec::with_capacity(bindings.len());
         for binding in &bindings {
             // check for buffer
@@ -304,6 +336,7 @@ impl WgpuContext {
             if let Some(sampler) = self.sampler_handler.get(&binding.id) {
                 resource_pairs.push((binding.slot, BindGroupResource::Sampler(Arc::clone(&sampler))));
             }
+            dependencies.push(binding.id.clone());
         }
 
         // println!("found resources: {:#?}, expected respources: {:#?}", resource_pairs, bindings);
@@ -316,7 +349,8 @@ impl WgpuContext {
 
             let context = Arc::new(BindGroupContext {
                 device: Arc::clone(&self.core.device),
-                layout: Arc::clone(&layout)
+                layout: Arc::clone(&layout),
+                dependencies
             });
 
             self.bindgroup_handler.request_new(&group_id, &builder, context);
@@ -428,6 +462,11 @@ impl WgpuContext {
     /// process update commands
     pub fn update_resource(&mut self, id: &ResourceID, update: ResourceUpdate) {
         if let Some(buffer) = self.buffer_handler.get(id) {
+            if update.offset + (update.data.len() as u64) > buffer.size() {
+                println!("[WgpuContext Error] Cannot write data to buffer because the size of the update is too large.");
+                return; 
+            }
+
             self.core.queue.write_buffer(buffer, update.offset, &update.data);
         }
         // add texture check when ready
@@ -440,8 +479,11 @@ impl WgpuContext {
         }
 
         // verify camera existence
-        let camera_group = match self.bindgroup_handler.get(&render_ctx.global_id) {
-            Some(data) => data,
+        let global_bg = match self.bindgroup_handler.get(&render_ctx.global_id) {
+            Some(bg_asset) => {
+                self.prepare_bind_group(bg_asset);
+                &bg_asset.bg
+            },
             None => return Ok(()) // if the camera bind group is not ready, we can't draw anything
         };
 
@@ -474,7 +516,7 @@ impl WgpuContext {
             );
 
             // draw meshes to current texture
-            render_pass.set_bind_group(GLOBAL_UNIFORMS, camera_group, &[]);
+            render_pass.set_bind_group(GLOBAL_UNIFORMS, global_bg, &[]);
             self.draw_instances(&render_ctx.draw_cmds, &mut render_pass);
         }
 
@@ -484,32 +526,42 @@ impl WgpuContext {
         Ok(())
     }
 
-    fn draw_instances(&mut self, draw_cmds: &Vec<DrawCommand>, render_pass: &mut wgpu::RenderPass) {
+    fn draw_instances(&self, draw_cmds: &Vec<DrawCommand>, render_pass: &mut wgpu::RenderPass) {
         for command in draw_cmds {
-            let vert_status = self.buffer_handler.status_of(&command.geometry_id.vertex_id);
-            let idx_status = self.buffer_handler.status_of(&command.geometry_id.index_id);
-            let pip_status = self.pipeline_handler.status_of(&command.pipeline_id);
-            let u_mat_status = self.bindgroup_handler.status_of(&command.material_id);
-            let u_instance_status = self.buffer_handler.status_of(&command.instance_id);
+            let vert_status = self.buffer_handler.get(&command.geometry_id.vertex_id);
+            let idx_status = self.buffer_handler.get(&command.geometry_id.index_id);
+            let pip_status = self.pipeline_handler.get(&command.pipeline_id);
+            let u_mat_status = self.bindgroup_handler.get(&command.material_id);
+            let u_instance_status = self.buffer_handler.get(&command.instance_id);
 
             // println!("geometry ready? {}", vert_status.is_some() && idx_status.is_some());
             // println!("material ready? {}", u_mat_status.is_some());
             // println!("instances ready? {}", u_instance_status.is_some());
             // println!("pipeline ready? {}", pip_status.is_some());
 
-            if let (Some(ResourceStatus::Ready(vtx_buffer)),
-                    Some(ResourceStatus::Ready(idx_buffer)),
-                    Some(ResourceStatus::Ready(pipeline)), 
-                    Some(ResourceStatus::Ready(u_material)),
-                    Some(ResourceStatus::Ready(u_instance))) = (vert_status, idx_status, pip_status, u_mat_status, u_instance_status) 
+            if let (Some(vtx_buffer),
+                    Some(idx_buffer),
+                    Some(pipeline), 
+                    Some(mat_bg_asset),
+                    Some(u_instance)) = (vert_status, idx_status, pip_status, u_mat_status, u_instance_status) 
             {
+                self.prepare_bind_group(mat_bg_asset);
+
                 render_pass.set_pipeline(pipeline);
-                render_pass.set_bind_group(MATERIAL_UNIFORMS, u_material, &[]);
+                render_pass.set_bind_group(MATERIAL_UNIFORMS, &mat_bg_asset.bg, &[]);
                 render_pass.set_vertex_buffer(VERTEX_BUFFER, vtx_buffer.slice(..));
                 render_pass.set_vertex_buffer(INSTANCE_BUFFER, u_instance.slice(..));
                 render_pass.set_index_buffer(idx_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 render_pass.draw_indexed(0..command.geometry_id.indices, 0, 0..command.instances);
             }
+        }
+    }
+
+    fn prepare_bind_group(&self, bind_group: &BindGroupAsset) {
+        for dep in bind_group.dependencies.iter() {
+            self.texture_handler.mark_accessed(dep);
+            self.buffer_handler.mark_accessed(dep);
+            self.sampler_handler.mark_accessed(dep);
         }
     }
 }

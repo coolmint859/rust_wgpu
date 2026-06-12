@@ -2,7 +2,7 @@ use std::{collections::HashMap, fs::File, io::Read, sync::Arc};
 use rayon::prelude::*;
 use glam::Vec4;
 
-use crate::graphics::{geometry::Geometry, handler::{BuilderType, ResourceBuilder}, instance::InstanceGroup, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, primitive::{Primitive, RenderInfo}, shape_factory::Shape2D, texture::{TextureBuilder, TextureContext}, transform::Transform, vertex::{TransformAttribute, Vec2Attribute, Vec3Attribute, Vec4Attribute, attr}, wpgu_context::{ResourceID, ResourceScope, ResourceType}};
+use crate::graphics::{geometry::Geometry, handler::{BuilderType, ResourceBuilder}, instance::InstanceGroup, presets::{MaterialPreset, RenderPipeline, ShaderSpecPreset}, primitive::{Primitive, RenderInfo}, shape_factory::Shape2D, texture::{TextureBuilder, TextureContext}, transform::Transform, vertex::{TransformAttribute, Vec2Attribute, Vec3Attribute, Vec4Attribute, attr}, wpgu_context::{HoldPolicy, ResourceID, ResourceScope, ResourceType}};
 
 /// Data struct describing the properties of a font's texture atlas
 #[derive(Clone, Debug)]
@@ -153,6 +153,7 @@ impl ResourceBuilder for FontBuilder {
     type Output = Arc<FontAsset>;
     type Context = TextureContext;
 
+    fn hold_time(&self) -> HoldPolicy { HoldPolicy::Transient }
     fn builder_type(&self) -> super::handler::BuilderType { BuilderType::Blocking }
 
     fn build(&self, context: Arc<Self::Context>) -> Result<Self::Output, String> {

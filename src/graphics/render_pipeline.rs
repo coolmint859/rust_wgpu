@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use std::sync::Arc;
 
-use crate::graphics::shader::ShaderSpec;
+use crate::graphics::{shader::ShaderSpec, wpgu_context::HoldPolicy};
 
 use super::{
     handler::ResourceBuilder,
@@ -80,6 +80,8 @@ impl RenderPipelineBuilder {
 impl ResourceBuilder for RenderPipelineBuilder {
     type Output = wgpu::RenderPipeline;
     type Context = RenderPipelineContext;
+
+    fn hold_time(&self) -> HoldPolicy { HoldPolicy::Persistent }
 
     /// Construct the render pipeline with the settings provided through the stored template
     fn build(&self, context: Arc<RenderPipelineContext>) -> Result<Self::Output, String> {
